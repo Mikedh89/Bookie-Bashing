@@ -1296,6 +1296,25 @@ let openLeagues = null;   // null = Premier League only
 const LEAGUE_ORDER = ['premier league', 'championship', 'league one', 'league two',
                       'national league', 'premiership', 'scottish'];
 
+// Premier League down to National League, plus Scottish League One
+function wantedLeague(name) {
+  const n = (name || '').toLowerCase();
+  if (/women|ladies|u1[5-9]|u2[0-3]|youth|academy|reserve/.test(n)) return false;
+  const eng = n.includes('england') || n.includes('english') || n.includes('efl');
+  const sco = n.includes('scotland') || n.includes('scottish');
+  if (sco) return n.includes('league one') || n.includes('league 1');
+  if (!eng) {
+    // some feeds drop the country prefix - allow the bare English names
+    const bare = ['premier league', 'championship', 'league one', 'league 1',
+                  'league two', 'league 2', 'national league'];
+    return bare.some(b => n.includes(b)) && !n.includes('women') && !n.includes('u21');
+  }
+  return n.includes('premier league') || n.includes('championship')
+      || n.includes('league one') || n.includes('league 1')
+      || n.includes('league two') || n.includes('league 2')
+      || n.includes('national league');
+}
+
 function leagueName(ev) {
   return (ev.league && (ev.league.name || ev.league.slug)) || 'Other';
 }
@@ -1391,8 +1410,8 @@ function upcomingFixtures() {
     if (isNaN(t) || t < now || t > horizon) return false;
     if (d.getDay() !== 6) return false;            // Saturday only
     const mins = d.getHours() * 60 + d.getMinutes();
-    if (mins < 14 * 60 + 30 || mins > 15 * 60 + 30) return false;   // around 3pm
-    return true;
+    if (mins < 13 * 60 + 30 || mins > 16 * 60) return false;   // afternoon kickoffs
+    return wantedLeague(leagueName(e));
   }).sort((a, b) => new Date(a.date) - new Date(b.date))
     .filter((e, _i, arr) => {
       // keep only the soonest Saturday's card
@@ -1463,8 +1482,18 @@ function renderPickPrompt() {
       const max = Math.max(...future.map(e => new Date(e.date).getTime()));
       furthest = new Date(max).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
     }
-    html += `<div class="picker-note">No Saturday 3pm fixtures in the feed yet.<br>
-      Feed holds ${liveEvents.length} games \u00b7 ${future.length} upcoming \u00b7 ${sats.length} on a Saturday${furthest ? ' \u00b7 furthest ' + furthest : ''}.<br>
+    const times = {};
+    sats.forEach(e => {
+      const d = new Date(e.date);
+      const k = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+      times[k] = (times[k] || 0) + 1;
+    });
+    const common = Object.keys(times).sort((a, b) => times[b] - times[a]).slice(0, 6)
+                     .map(k => k + ' (' + times[k] + ')').join(', ');
+    html += `<div class="picker-note">No afternoon fixtures matched.<br>
+      Feed: ${liveEvents.length} games \u00b7 ${future.length} upcoming \u00b7 ${sats.length} Saturday${furthest ? ' \u00b7 furthest ' + furthest : ''}.<br>
+      Kickoff times seen: ${common || 'none'}.<br>
+      Leagues: ${[...new Set(sats.map(e => leagueName(e)))].slice(0, 6).join(' / ') || 'none'}.<br>
       Use Log my picks meanwhile.</div>`;
   } else {
     // group by competition, Premier League first
