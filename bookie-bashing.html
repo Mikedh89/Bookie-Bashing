@@ -192,6 +192,10 @@
   .claude-form i { font-style:normal; }
   .f-W { color:#00ff85; } .f-D { color:#04f5ff; } .f-L { color:#ff5c8a; }
   .claude-odds { color:#04f5ff; font-weight:800; font-size:12px; }
+  .slip-row { display:flex; gap:8px; margin-top:12px; }
+  .slip-btn { flex:1; text-align:center; padding:10px 6px; border-radius:8px; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.3px; cursor:pointer; border:none; font-family:inherit; background:#00ff85; color:#1a0020; text-decoration:none; }
+  .slip-alt { background:transparent; color:#04f5ff; border:1px solid #55105c; }
+  .slip-note { font-size:10px; color:#7d5983; margin-top:8px; font-style:italic; }
   .claude-h2h { display:block; font-size:9px; color:#a882ac; font-weight:600; white-space:nowrap; }
   .claude-prob { color:#e9c46a; font-weight:800; font-size:13px; width:56px; text-align:right; }
   .follow { background:#2b002e; border:1px solid #55105c; border-radius:10px; padding:16px 18px; margin-bottom:22px; }
@@ -226,7 +230,7 @@
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 26</div>
+    <div class="sync-status" style="color:#7d5983;">build 29</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -329,9 +333,20 @@ const STAKE = 10;
 const PRIZE_STAKE = 5;          // each, each match week, into the season pot
 const PRIZE_SPLIT = [0.8, 0.2]; // 1st, 2nd at the end of match week 42
 
-// Season pot so far: £5 each per logged match week
+// A match week only counts toward the prize pot once its 3pm Saturday
+// kickoff has passed - by then picks are in and everyone has paid up.
+function weekHasStarted(gw) {
+  if (!gw) return false;
+  if (!gw.lockUntil) return true;          // older weeks, already played
+  return Date.now() >= gw.lockUntil - 2 * 3600 * 1000;   // lock is 5pm, so 3pm
+}
+
+function paidWeeks() {
+  return picks.filter(weekHasStarted).length;
+}
+
 function prizePot() {
-  return PRIZE_STAKE * PARTICIPANTS.length * usedWeeks().length;
+  return PRIZE_STAKE * PARTICIPANTS.length * paidWeeks();
 }
 
 function prizeFor(position) {
@@ -1513,7 +1528,8 @@ let buildingBoard = false;
 // match week, stored in Firebase, read by everyone.
 async function buildOddsBoard(week, fixtures) {
   if (buildingBoard) return;
-  if (oddsBoard['week_' + week]) return;          // already taken
+  const existing = oddsBoard['week_' + week];
+  if (existing && Date.now() - (existing.taken || 0) < 12 * 3600 * 1000) return;   // refreshed twice a day
   if (typeof ODDS_API_KEY === 'undefined' || ODDS_API_KEY.indexOf('PASTE') === 0) return;
   if (Date.now() < rateLimitedUntil) return;
   buildingBoard = true;
@@ -1545,7 +1561,8 @@ async function buildOddsBoard(week, fixtures) {
     const snap = { taken: Date.now(), odds: odds };
     oddsBoard['week_' + week] = snap;
     boardRef.child('week_' + week).set(snap).catch(() => {});
-    setOdds('Odds snapshot taken \u00b7 ' + Object.keys(odds).length + ' prices', 'good');
+    repriceOpenPicks(week, odds);
+    setOdds('Odds refreshed \u00b7 ' + Object.keys(odds).length + ' prices', 'good');
     renderPickPrompt();
   } else {
     setOdds('Could not take odds snapshot \u2014 pick without prices', 'bad');
@@ -1564,6 +1581,30 @@ function winProbability(week, ev, team) {
   let total = (h > 1 ? 1 / h : 0) + (a > 1 ? 1 / a : 0) + (d > 1 ? 1 / d : 0);
   if (!total) return null;
   return Math.round((1 / mine) / total * 100);
+}
+
+// Picks follow the market until their game kicks off, then the price sticks.
+function repriceOpenPicks(week, odds) {
+  const gw = picks.find(g => g.week === week);
+  if (!gw || !gw.entries) return;
+  const now = Date.now();
+  let changed = false;
+
+  PARTICIPANTS.forEach(person => {
+    (gw.entries[person] || []).forEach(pk => {
+      if (pk.result !== 'pending') return;              // settled, leave alone
+      const ev = findEvent(leagueFixtures.length ? leagueFixtures : liveEvents, pk.team);
+      if (ev && ev.date && new Date(ev.date).getTime() <= now) return;   // kicked off
+      let price = odds[pk.team];
+      if (!price) {
+        const k = Object.keys(odds).find(n => teamsMatch(n, pk.team));
+        price = k ? odds[k] : null;
+      }
+      if (price && price > 1 && price !== pk.odds) { pk.odds = price; changed = true; }
+    });
+  });
+
+  if (changed) { saveWeek(gw); renderAll(); }
 }
 
 function boardOdds(week, team) {
@@ -1712,7 +1753,7 @@ function renderPickPrompt() {
     const b = oddsBoard['week_' + wk];
     const when = b && b.taken ? new Date(b.taken).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : null;
     html += `</div><div class="picker-note">${when
-      ? 'Prices as at ' + when + ' \u2014 fixed, they won\u2019t move.'
+      ? 'Prices as at ' + when + ' \u00b7 refreshed twice a day until kickoff.'
       : 'Tap a team to back them. Prices load shortly.'}</div>`;
     if (!b && !buildingBoard) {
       if (Date.now() < rateLimitedUntil) {
@@ -1786,6 +1827,13 @@ function renderPickPrompt() {
           <span class="claude-prob">${r.pr}%${r.h2h ? `<span class="claude-h2h">H2H ${r.h2h.mine}-${r.h2h.d}-${r.h2h.theirs}</span>` : ''}</span>
         </div>`;
       });
+      const slipText = top.map((r, i) => `${i + 1}. ${r.team} ${toFractional(r.od)}`).join('\n');
+      html += `<div class="slip-row">
+        <button class="slip-btn" id="copySlip" data-slip="${escapeHtml(slipText)}">Copy selections</button>
+        <a class="slip-btn slip-alt" href="https://www.bet365.com" target="_blank" rel="noopener">Bet365</a>
+        <a class="slip-btn slip-alt" href="https://m.skybet.com" target="_blank" rel="noopener">Sky Bet</a>
+      </div>
+      <div class="slip-note">Bookmakers don\u2019t allow pre-filled slips from outside \u2014 copy, then paste as you search.</div>`;
       html += `</div>`;
     }
   }
@@ -1795,6 +1843,17 @@ function renderPickPrompt() {
 
   const sel = document.getElementById('pickerWho');
   if (sel) sel.addEventListener('change', () => { pickerWho = sel.value; renderPickPrompt(); });
+  const copyBtn = el.querySelector('#copySlip');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const txt = copyBtn.getAttribute('data-slip').replace(/&#10;/g, '\n');
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(txt)
+          .then(() => { copyBtn.textContent = 'Copied \u2713'; })
+          .catch(() => { copyBtn.textContent = 'Copy failed'; });
+      }
+    });
+  }
   el.querySelectorAll('.lg-head').forEach(h => {
     h.addEventListener('click', () => {
       const lg = h.getAttribute('data-league');
@@ -1907,10 +1966,11 @@ function renderKitty() {
     }
   }
 
-  const wksIn = usedWeeks().length;
+  const wksIn = paidWeeks();
   html += `<div class="pay-divider">Prize pot</div>
     <div class="pot-row">
-      <span>\u00a3${PRIZE_STAKE} each \u00b7 ${wksIn} week${wksIn === 1 ? '' : 's'} in</span>
+      <span>\u00a3${PRIZE_STAKE} each \u00b7 ${wksIn} week${wksIn === 1 ? '' : 's'} in${
+        picks.length > wksIn ? ' \u00b7 week ' + Math.max(...usedWeeks()) + ' adds at 3pm Sat' : ''}</span>
       <span class="pot-total">\u00a3${prizePot()}</span>
     </div>
     <div class="pot-note">Paid out at the end of the season: 80% to 1st, 20% to 2nd</div>`;
