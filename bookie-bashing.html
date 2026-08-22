@@ -1444,8 +1444,26 @@ document.getElementById('resetBtn').addEventListener('click', () => {
 
 initFirebase();
 setInterval(() => { if (picks.length) renderAll(); }, 60000);
-setTimeout(syncOddsAndResults, 2500);
-setInterval(syncOddsAndResults, 1800000);
+// Poll hard while Saturday afternoon games are on, then back right off.
+function syncIntervalMs() {
+  const d = new Date();
+  const sat = d.getDay() === 6;
+  const hr = d.getHours();
+  if (sat && hr >= 15 && hr < 17) return 5 * 60 * 1000;      // 3-5pm Sat: every 5 min
+  if (sat && hr >= 12 && hr < 19) return 30 * 60 * 1000;     // rest of Sat: every 30 min
+  return 12 * 60 * 60 * 1000;                                // otherwise: twice a day
+}
+
+let syncTimer = null;
+function scheduleSync() {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncOddsAndResults();
+    scheduleSync();
+  }, syncIntervalMs());
+}
+
+setTimeout(() => { syncOddsAndResults(); scheduleSync(); }, 2500);
 </script>
 </body>
 </html>
