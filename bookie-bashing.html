@@ -48,6 +48,7 @@
     line-height: 1;
   }
   .sub { font-size: 13px; color: #c9a8ce; }
+  .update-note { font-size: 11px; color: #c9a8ce; margin-top: 8px; font-style: italic; }
   .sync-status { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: #a882ac; margin-top: 6px; }
   .season-line { font-size: 11px; color: #04f5ff; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 700; margin-top: 10px; }
   table {
@@ -87,6 +88,7 @@
     border-radius: 6px; color: #ffffff; font-size: 15px; font-family: inherit;
   }
   input[type=text]:focus { outline: none; border-color: #04f5ff; }
+  .already-note { font-size: 11px; color: #04f5ff; margin-bottom: 10px; }
   .person-block { margin-bottom: 18px; padding-top: 14px; border-top: 1px solid #4a0e50; }
   .person-name { font-weight: 800; color: #ffffff; margin-bottom: 10px; font-size: 15px; }
   .pick-row { display: flex; gap: 8px; margin-bottom: 8px; position: relative; }
@@ -149,6 +151,7 @@
     <h1>Bookie Bashing</h1>
     <div class="sub">3pts a win &middot; 1pt a draw &middot; 0pts a loss &middot; log picks before kickoff, results added after</div>
     <div class="season-line" id="seasonLine"></div>
+    <div class="update-note">Picks in before kickoff &middot; table updated about an hour after full time</div>
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
   </div>
 
@@ -156,17 +159,21 @@
 
   <div id="kittySection"></div>
 
-  <button class="add-btn" id="showFormBtn">+ Log this weekend's picks</button>
+  <button class="add-btn" id="showFormBtn">+ Log my picks</button>
 
   <div class="panel" id="formPanel" style="display:none;">
     <div style="margin-bottom:16px;">
       <label>Gameweek</label>
       <select id="gwName" style="width:100%;"></select>
     </div>
+    <div style="margin-bottom:16px;">
+      <label>Who are you?</label>
+      <select id="whoAmI" style="width:100%;"></select>
+    </div>
     <div id="personBlocks"></div>
     <div class="error" id="formError" style="display:none;"></div>
     <div class="btn-row">
-      <button class="btn btn-gold" style="flex:1;" id="saveGwBtn">Save gameweek</button>
+      <button class="btn btn-gold" style="flex:1;" id="saveGwBtn">Save my picks</button>
       <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
     </div>
   </div>
@@ -350,12 +357,13 @@ function nextFreeWeek() {
 
 function populateWeekSelect() {
   const sel = document.getElementById('gwName');
-  const used = usedWeeks();
   const next = nextFreeWeek();
   let html = '';
   for (let w = 1; w <= TOTAL_WEEKS; w++) {
-    const taken = used.includes(w);
-    html += `<option value="${w}"${taken ? ' disabled' : ''}${w === next ? ' selected' : ''}>Week ${w}${taken ? ' \u2014 already logged' : ''}</option>`;
+    const gw = picks.find(g => g.week === w);
+    const count = gw ? PARTICIPANTS.filter(p => gw.entries && gw.entries[p]).length : 0;
+    const tag = count === 3 ? ' \u2014 all in' : count > 0 ? ` \u2014 ${count} of 3 in` : '';
+    html += `<option value="${w}"${w === next ? ' selected' : ''}>Week ${w}${tag}</option>`;
   }
   sel.innerHTML = html;
 }
@@ -474,28 +482,33 @@ function escapeHtml(s) {
 }
 
 function renderPersonBlocks() {
-  let html = '';
-  PARTICIPANTS.forEach(p => {
-    html += `<div class="person-block" data-person="${escapeHtml(p)}">
-      <div class="person-name">${escapeHtml(p)}</div>
-      <div class="pick-row">
-        <div class="team-search-wrap">
-          <input type="text" class="team-input" placeholder="Start typing a team...\u2026" autocomplete="off">
-          <div class="autocomplete-list"></div>
-        </div>
-      </div>
-      <div class="pick-row">
-        <div class="team-search-wrap">
-          <input type="text" class="team-input" placeholder="Start typing a team...\u2026" autocomplete="off">
-          <div class="autocomplete-list"></div>
-        </div>
+  const sel = document.getElementById('whoAmI');
+  sel.innerHTML = PARTICIPANTS.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+  renderMyPickInputs();
+}
+
+function renderMyPickInputs() {
+  const person = document.getElementById('whoAmI').value;
+  const week = Number(document.getElementById('gwName').value);
+  const gw = picks.find(g => g.week === week);
+  const existing = gw && gw.entries && gw.entries[person] ? gw.entries[person] : null;
+
+  let html = `<div class="person-block" data-person="${escapeHtml(person)}">`;
+  if (existing) {
+    html += `<div class="already-note">You\u2019ve already logged Week ${week}: ${existing.map(e => escapeHtml(e.team)).join(' &amp; ')}. Saving again will replace it.</div>`;
+  }
+  [0,1].forEach(idx => {
+    const val = existing && existing[idx] ? escapeHtml(existing[idx].team) : '';
+    html += `<div class="pick-row">
+      <div class="team-search-wrap">
+        <input type="text" class="team-input" value="${val}" placeholder="Team ${idx+1} \u2014 start typing\u2026" autocomplete="off">
+        <div class="autocomplete-list"></div>
       </div>
     </div>`;
   });
+  html += `</div>`;
   document.getElementById('personBlocks').innerHTML = html;
-  document.querySelectorAll('.team-search-wrap').forEach(wrap => {
-    setupAutocomplete(wrap);
-  });
+  document.querySelectorAll('.team-search-wrap').forEach(setupAutocomplete);
 }
 
 const LEAGUE_LABELS = {
@@ -590,6 +603,9 @@ function renderHistory() {
     PARTICIPANTS.forEach(p => {
       const entries = gw.entries[p] || [];
       html += `<div class="gw-row"><span>${escapeHtml(p)}</span><span style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">`;
+      if (entries.length === 0) {
+        html += `<span style="color:#7d5983; font-size:12px; font-style:italic;">no picks in yet</span>`;
+      }
       entries.forEach((pick, pIdx) => {
         html += `<span class="badge" style="background:${resultBg(pick.result)};color:${resultColor(pick.result)}; display:inline-flex; align-items:center; gap:4px;">
           ${escapeHtml(pick.team)}
@@ -755,39 +771,45 @@ document.getElementById('cancelBtn').addEventListener('click', () => {
   document.getElementById('formPanel').style.display = 'none';
   document.getElementById('showFormBtn').style.display = 'block';
 });
+document.getElementById('whoAmI').addEventListener('change', renderMyPickInputs);
+document.getElementById('gwName').addEventListener('change', renderMyPickInputs);
+
 document.getElementById('saveGwBtn').addEventListener('click', () => {
   const week = Number(document.getElementById('gwName').value);
+  const person = document.getElementById('whoAmI').value;
   const errorEl = document.getElementById('formError');
-  if (!week) {
-    errorEl.textContent = "Pick a gameweek.";
+  errorEl.style.display = 'none';
+
+  if (!week || !person) {
+    errorEl.textContent = "Pick a gameweek and choose who you are.";
     errorEl.style.display = 'block';
     return;
   }
-  if (usedWeeks().includes(week)) {
-    errorEl.textContent = `Week ${week} is already logged. Delete it first to re-enter.`;
-    errorEl.style.display = 'block';
-    return;
-  }
-  const entries = {};
+
+  const inputs = document.querySelectorAll('.team-input');
+  const list = [];
   let ok = true;
-  document.querySelectorAll('.person-block').forEach(block => {
-    const person = block.getAttribute('data-person');
-    const teamInputs = block.querySelectorAll('.team-input');
-    const list = [];
-    teamInputs.forEach((inp) => {
-      const team = inp.value.trim();
-      if (!team) ok = false;
-      list.push({ team, result: 'pending' });
-    });
-    entries[person] = list;
+  inputs.forEach(inp => {
+    const team = inp.value.trim();
+    if (!team) ok = false;
+    list.push({ team, result: 'pending' });
   });
   if (!ok) {
-    errorEl.textContent = "Every punter needs both teams filled in.";
+    errorEl.textContent = "Both of your teams need filling in.";
     errorEl.style.display = 'block';
     return;
   }
-  picks.push({ id: Date.now(), week, gameweek: `Week ${week}`, entries });
-  picks.sort((a, b) => (a.week || 0) - (b.week || 0));
+
+  let gw = picks.find(g => g.week === week);
+  if (!gw) {
+    gw = { id: Date.now(), week, gameweek: `Week ${week}`, entries: {}, payments: {} };
+    picks.push(gw);
+    picks.sort((a, b) => (a.week || 0) - (b.week || 0));
+  }
+  if (!gw.entries) gw.entries = {};
+  gw.entries[person] = list;
+  paymentsFor(gw);
+
   save(picks);
   document.getElementById('formPanel').style.display = 'none';
   document.getElementById('showFormBtn').style.display = 'block';
