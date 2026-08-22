@@ -226,7 +226,7 @@
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 19</div>
+    <div class="sync-status" style="color:#7d5983;">build 20</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1379,7 +1379,7 @@ async function fetchLeagueFixtures() {
       const d = await r.json();
       const list = Array.isArray(d) ? d : (d.leagues || d.data || []);
       note = 'leagues:' + list.length;
-      slugs = list.filter(l => wantedLeague(l.name || l.slug || ''))
+      slugs = list.filter(l => wantedLeague(((l.country && (l.country.name || l.country)) || '') + ' ' + (l.name || '')) || wantedLeague((l.slug || '').replace(/-/g, ' ')))
                   .map(l => l.slug || l.id).filter(Boolean).slice(0, 8);
       note += ' matched:' + slugs.length;
       if (!slugs.length && list.length) {
@@ -1420,23 +1420,23 @@ async function fetchLeagueFixtures() {
 const LEAGUE_ORDER = ['premier league', 'championship', 'league one', 'league two',
                       'national league', 'premiership', 'scottish'];
 
-// Premier League down to National League, plus Scottish League One
+// Premier League down to National League, plus Scottish League One.
+// The country must be explicit - plenty of countries have a "Premier League".
 function wantedLeague(name) {
-  const n = (name || '').toLowerCase();
+  const n = (name || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (/women|ladies|u1[5-9]|u2[0-3]|youth|academy|reserve/.test(n)) return false;
-  const eng = n.includes('england') || n.includes('english') || n.includes('efl');
-  const sco = n.includes('scotland') || n.includes('scottish');
-  if (sco) return n.includes('league one') || n.includes('league 1');
-  if (!eng) {
-    // some feeds drop the country prefix - allow the bare English names
-    const bare = ['premier league', 'championship', 'league one', 'league 1',
-                  'league two', 'league 2', 'national league'];
-    return bare.some(b => n.includes(b)) && !n.includes('women') && !n.includes('u21');
-  }
-  return n.includes('premier league') || n.includes('championship')
-      || n.includes('league one') || n.includes('league 1')
-      || n.includes('league two') || n.includes('league 2')
-      || n.includes('national league');
+
+  const isEngland  = /\b(england|english)\b/.test(n);
+  const isScotland = /\b(scotland|scottish)\b/.test(n);
+  if (!isEngland && !isScotland) return false;
+
+  if (isScotland) return /\bleague (one|1)\b/.test(n);
+
+  return /\bpremier league\b/.test(n)
+      || /\bchampionship\b/.test(n)
+      || /\bleague (one|1)\b/.test(n)
+      || /\bleague (two|2)\b/.test(n)
+      || /\bnational league\b/.test(n);
 }
 
 function leagueName(ev) {
