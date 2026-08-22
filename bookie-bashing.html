@@ -160,6 +160,21 @@
   .settled-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #a882ac; cursor: pointer; text-transform: none; letter-spacing: 0; font-weight: 400; margin: 0; }
   .settled-toggle input { accent-color: #00ff85; margin: 0; }
   .pay-divider { margin: 12px 0 4px; font-size: 10px; letter-spacing: 1.5px; color: #7d5983; text-transform: uppercase; font-weight: 700; border-top: 1px solid #4a0e50; padding-top: 10px; }
+  .picker { background:#2b002e; border:1px solid #55105c; border-radius:10px; padding:16px 18px; margin-bottom:22px; }
+  .picker-head { font-size:14px; font-weight:800; color:#00ff85; margin-bottom:12px; }
+  .picker-sub { font-size:11px; color:#a882ac; margin:-8px 0 12px; }
+  .picker-who { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .picker-who select { flex:1; padding:8px 10px; font-size:13px; }
+  .picker-count { font-size:11px; color:#a882ac; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; }
+  .picker-mine { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+  .picker-chip { background:#00ff85; color:#1a0020; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:800; cursor:pointer; }
+  .picker-list { max-height:330px; overflow-y:auto; border-top:1px solid #4a0e50; padding-top:8px; }
+  .picker-day { font-size:10px; letter-spacing:1px; text-transform:uppercase; color:#04f5ff; font-weight:700; margin:10px 0 4px; }
+  .fixture { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+  .side { flex:1; padding:9px 8px; background:#1a0020; border:1px solid #55105c; border-radius:6px; color:#e8d4ea; font-size:12px; font-family:inherit; cursor:pointer; text-align:center; line-height:1.2; }
+  .side.sel { background:#00ff85; color:#1a0020; border-color:#00ff85; font-weight:800; }
+  .vs { font-size:10px; color:#7d5983; white-space:nowrap; }
+  .picker-note { font-size:11px; color:#a882ac; margin-top:10px; font-style:italic; }
   .follow { background:#2b002e; border:1px solid #55105c; border-radius:10px; padding:16px 18px; margin-bottom:22px; }
   .follow-head { font-size:12px; letter-spacing:1.5px; color:#04f5ff; text-transform:uppercase; font-weight:700; margin-bottom:12px; }
   .follow-table { width:100%; border-collapse:collapse; background:transparent; border:none; margin:0; box-shadow:none; }
@@ -195,6 +210,7 @@
 
   <table id="leagueTable"></table>
   <div id="liveFlag"></div>
+  <div id="pickPrompt"></div>
 
   <div id="kittySection"></div>
   <button class="backfill-btn" id="backfillBtn">Add match week 1 odds</button>
@@ -1199,6 +1215,7 @@ function renderHistory() {
 
 function renderAll() {
   renderTable();
+  renderPickPrompt();
   renderFollow();
   renderKitty();
   renderHistory();
@@ -1242,6 +1259,117 @@ function kickoffOf(ev) {
     const d = new Date(ev.date);
     return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   } catch (e) { return ''; }
+}
+
+
+// ---- "Get your picks in" fixture picker --------------------------------
+// Opens from 5.30pm Saturday for the next match week, and stays open until
+// the following Saturday kicks off.
+function picksWindowOpen() {
+  const d = new Date();
+  const day = d.getDay(), hr = d.getHours(), mins = d.getHours() * 60 + d.getMinutes();
+  if (day === 6) return mins >= 17 * 60 + 30;   // Sat from 17:30
+  return true;                                   // Sun-Fri
+}
+
+let pickerWho = PARTICIPANTS[0];
+
+// Next Saturday's 3pm kickoffs only. Reads the fixture list the sync
+// already fetched - no extra API calls.
+function upcomingFixtures() {
+  const now = Date.now();
+  const horizon = now + 8 * 24 * 3600 * 1000;
+  return liveEvents.filter(e => {
+    if (!e.date) return false;
+    const d = new Date(e.date);
+    const t = d.getTime();
+    if (isNaN(t) || t < now || t > horizon) return false;
+    if (d.getDay() !== 6) return false;            // Saturday only
+    if (d.getHours() !== 15 || d.getMinutes() !== 0) return false;  // 3pm only
+    const lg = ((e.league && (e.league.name || e.league.slug)) || '').toLowerCase();
+    return lg.includes('england') || lg.includes('scotland')
+        || lg.includes('premier league') || lg.includes('championship')
+        || lg.includes('league one') || lg.includes('league two')
+        || lg.includes('national league');
+  }).sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
+function myPicksFor(week, person) {
+  const gw = picks.find(g => g.week === week);
+  return (gw && gw.entries && gw.entries[person]) || [];
+}
+
+function togglePick(week, person, team) {
+  let gw = picks.find(g => g.week === week);
+  if (!gw) {
+    gw = { id: Date.now(), week, gameweek: 'Match week ' + week,
+           entries: {}, payments: {}, lockUntil: upcomingSaturday5pm() };
+    picks.push(gw);
+    picks.sort((a, b) => (a.week || 0) - (b.week || 0));
+  }
+  if (!gw.entries) gw.entries = {};
+  const list = gw.entries[person] ? gw.entries[person].slice() : [];
+  const at = list.findIndex(x => x.team === team);
+  if (at >= 0) list.splice(at, 1);
+  else if (list.length < 2) list.push({ team: team, result: 'pending' });
+  else { setOdds('Two picks each \u2014 tap one to swap it out', 'bad'); return; }
+  gw.entries[person] = list;
+  paymentsFor(gw);
+  saveWeek(gw);
+  renderAll();
+}
+
+function renderPickPrompt() {
+  const el = document.getElementById('pickPrompt');
+  if (!el) return;
+  const wk = nextFreeWeek();
+  if (!wk || !picksWindowOpen()) { el.innerHTML = ''; return; }
+
+  const mine = myPicksFor(wk, pickerWho);
+  const fixtures = upcomingFixtures();
+
+  let html = `<div class="picker">
+    <div class="picker-head">\u26BD Get your picks in for match week ${wk}</div>
+    <div class="picker-sub">Saturday 3pm kickoffs</div>
+    <div class="picker-who">
+      <select id="pickerWho">${PARTICIPANTS.map(p =>
+        `<option value="${escapeHtml(p)}" ${p === pickerWho ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}</select>
+      <span class="picker-count">${mine.length}/2 chosen</span>
+    </div>`;
+
+  if (mine.length) {
+    html += `<div class="picker-mine">${mine.map(m =>
+      `<span class="picker-chip" data-team="${escapeHtml(m.team)}">${escapeHtml(m.team)} \u00d7</span>`).join('')}</div>`;
+  }
+
+  if (!fixtures.length) {
+    html += `<div class="picker-note">No fixtures loaded yet \u2014 they appear once the feed refreshes. You can still use Log my picks.</div>`;
+  } else {
+    let lastDay = '';
+    html += `<div class="picker-list">`;
+    fixtures.slice(0, 60).forEach(ev => {
+      const d = new Date(ev.date);
+      const day = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+      if (day !== lastDay) { html += `<div class="picker-day">${day}</div>`; lastDay = day; }
+      const hSel = mine.some(m => m.team === ev.home);
+      const aSel = mine.some(m => m.team === ev.away);
+      html += `<div class="fixture">
+        <button class="side ${hSel ? 'sel' : ''}" data-team="${escapeHtml(ev.home)}">${escapeHtml(ev.home)}</button>
+        <span class="vs">v</span>
+        <button class="side ${aSel ? 'sel' : ''}" data-team="${escapeHtml(ev.away)}">${escapeHtml(ev.away)}</button>
+      </div>`;
+    });
+    html += `</div><div class="picker-note">Tap a team to back them. Odds fill in automatically once picked.</div>`;
+  }
+
+  html += `</div>`;
+  el.innerHTML = html;
+
+  const sel = document.getElementById('pickerWho');
+  if (sel) sel.addEventListener('change', () => { pickerWho = sel.value; renderPickPrompt(); });
+  el.querySelectorAll('.side, .picker-chip').forEach(btn => {
+    btn.addEventListener('click', () => togglePick(wk, pickerWho, btn.getAttribute('data-team')));
+  });
 }
 
 // Live scores for the current match week's picks
