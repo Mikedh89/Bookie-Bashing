@@ -609,7 +609,7 @@ async function syncOddsAndResults() {
   if (!events.length) { setOdds('Odds feed: 0 events returned', 'bad'); return; }
   events = events.filter(isSeniorMens);
   liveEvents = events;
-  renderFollow();
+  renderAll();   // recalculate the table with in-play scores
   window.__evDebug = 'event keys: ' + Object.keys(events[0] || {}).slice(0, 8).join(',');
 
   let changed = 0, wanted = 0, matched = 0, needed = 0;
