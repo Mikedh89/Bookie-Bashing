@@ -181,6 +181,15 @@
   .side.sel .side-odds { color:#1a0020; }
   .vs { font-size:10px; color:#7d5983; white-space:nowrap; }
   .picker-note { font-size:11px; color:#a882ac; margin-top:10px; font-style:italic; }
+  .claude-pick { margin-top:14px; padding-top:12px; border-top:1px solid #4a0e50; }
+  .claude-head { font-size:12px; letter-spacing:1px; text-transform:uppercase; color:#e9c46a; font-weight:700; }
+  .claude-sub { font-size:11px; color:#a882ac; font-style:italic; margin:2px 0 8px; }
+  .claude-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-top:1px solid #3a0c40; font-size:13px; }
+  .claude-rank { width:16px; color:#7d5983; font-weight:800; font-size:11px; }
+  .claude-team { flex:1; color:#fff; font-weight:600; }
+  .claude-opp { display:block; font-size:10px; color:#a882ac; font-weight:400; }
+  .claude-odds { color:#04f5ff; font-weight:800; font-size:12px; }
+  .claude-prob { color:#e9c46a; font-weight:800; font-size:13px; width:38px; text-align:right; }
   .follow { background:#2b002e; border:1px solid #55105c; border-radius:10px; padding:16px 18px; margin-bottom:22px; }
   .follow-head { font-size:12px; letter-spacing:1.5px; color:#04f5ff; text-transform:uppercase; font-weight:700; margin-bottom:12px; }
   .follow-table { width:100%; border-collapse:collapse; background:transparent; border:none; margin:0; box-shadow:none; }
@@ -1293,10 +1302,12 @@ function leagueName(ev) {
 
 function leagueRank(name) {
   const n = name.toLowerCase();
+  const uk = n.includes('england') || n.includes('scotland') || n.includes('english')
+          || n.includes('scottish') || n.includes('efl');
   for (let i = 0; i < LEAGUE_ORDER.length; i++) {
-    if (n.includes(LEAGUE_ORDER[i])) return i;
+    if (n.includes(LEAGUE_ORDER[i])) return uk ? i : 20 + i;
   }
-  return LEAGUE_ORDER.length;
+  return uk ? LEAGUE_ORDER.length : 90;
 }
 let oddsBoard = {};        // { week_3: { taken: 1690..., odds: { 'Arsenal': 1.8, ... } } }
 let boardRef = null;
@@ -1372,6 +1383,7 @@ function boardOdds(week, team) {
 function upcomingFixtures() {
   const now = Date.now();
   const horizon = now + 8 * 24 * 3600 * 1000;
+  const all = [];
   return liveEvents.filter(e => {
     if (!e.date) return false;
     const d = new Date(e.date);
@@ -1380,12 +1392,13 @@ function upcomingFixtures() {
     if (d.getDay() !== 6) return false;            // Saturday only
     const mins = d.getHours() * 60 + d.getMinutes();
     if (mins < 14 * 60 + 30 || mins > 15 * 60 + 30) return false;   // around 3pm
-    const lg = ((e.league && (e.league.name || e.league.slug)) || '').toLowerCase();
-    return lg.includes('england') || lg.includes('scotland')
-        || lg.includes('premier league') || lg.includes('championship')
-        || lg.includes('league one') || lg.includes('league two')
-        || lg.includes('national league');
-  }).sort((a, b) => new Date(a.date) - new Date(b.date));
+    return true;
+  }).sort((a, b) => new Date(a.date) - new Date(b.date))
+    .filter((e, _i, arr) => {
+      // keep only the soonest Saturday's card
+      const first = new Date(arr[0].date).toDateString();
+      return new Date(e.date).toDateString() === first;
+    });
 }
 
 function myPicksFor(week, person) {
@@ -1494,6 +1507,43 @@ function renderPickPrompt() {
   }
 
   html += `</div>`;
+  // Claude's pick: the six shortest-priced teams on the board
+  const board = oddsBoard['week_' + wk];
+  if (board && board.odds) {
+    const ranked = [];
+    fixtures.forEach(ev => {
+      [ev.home, ev.away].forEach(team => {
+        const pr = winProbability(wk, ev, team);
+        const od = boardOdds(wk, team);
+        if (pr && od) ranked.push({ team, pr, od, opp: team === ev.home ? ev.away : ev.home, home: team === ev.home });
+      });
+    });
+    ranked.sort((a, b) => b.pr - a.pr);
+    // never both sides of the same match
+    const usedFixtures = new Set();
+    const top = ranked.filter(r => {
+      const key = [r.team, r.opp].sort().join('|');
+      if (usedFixtures.has(key)) return false;
+      usedFixtures.add(key);
+      return true;
+    }).slice(0, 6);
+    if (top.length) {
+      html = html.replace('</div>', '');   // reopen the picker card
+      html += `<div class="claude-pick">
+        <div class="claude-head">Claude\u2019s six</div>
+        <div class="claude-sub">Shortest prices on the board \u2014 not advice, just the market</div>`;
+      top.forEach((r, i) => {
+        html += `<div class="claude-row">
+          <span class="claude-rank">${i + 1}</span>
+          <span class="claude-team">${escapeHtml(r.team)}<span class="claude-opp">${r.home ? 'v' : 'at'} ${escapeHtml(r.opp)}</span></span>
+          <span class="claude-odds">${toFractional(r.od)}</span>
+          <span class="claude-prob">${r.pr}%</span>
+        </div>`;
+      });
+      html += `</div></div>`;
+    }
+  }
+
   el.innerHTML = html;
 
   const sel = document.getElementById('pickerWho');
