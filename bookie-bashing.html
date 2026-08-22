@@ -63,10 +63,10 @@
   }
   thead tr { background: #1a0020; }
   th {
-    padding: 12px 10px;
+    padding: 12px 5px;
     text-align: left;
-    font-size: 11px;
-    letter-spacing: 1.5px;
+    font-size: 10px;
+    letter-spacing: 0.5px;
     color: #04f5ff;
     text-transform: uppercase;
     font-weight: 700;
@@ -75,14 +75,15 @@
   tbody tr { border-bottom: 1px solid #4a0e50; }
   tbody tr:last-child { border-bottom: none; }
   tbody tr.leader { background: linear-gradient(90deg, rgba(0,255,133,0.14), rgba(0,255,133,0.03)); box-shadow: inset 3px 0 0 #00ff85; }
-  td { padding: 13px 10px; }
-  td.name { font-weight: 700; font-size: 16px; color: #ffffff; }
+  td { padding: 12px 5px; }
+  td.name { font-weight: 700; font-size: 14px; color: #ffffff; }
   td.pts { font-weight: 900; font-size: 19px; color: #00ff85; }
   .w { color: #00ff85; } .d { color: #04f5ff; } .l { color: #ff5c8a; }
   .rank { color: #a882ac; font-weight: 700; }
+  td.avg-odds { text-align:center; color:#04f5ff; font-weight:700; font-size:13px; }
   .badge-img { border-radius: 50%; object-fit: cover; vertical-align: middle; border: 2px solid #55105c; background: #1a0020; }
   tbody tr.leader .badge-img { border-color: #00ff85; }
-  .name-cell { display: flex; align-items: center; gap: 10px; }
+  .name-cell { display: flex; align-items: center; gap: 7px; }
 
   .panel { background: #2b002e; border: 1px solid #55105c; border-radius: 10px; padding: 20px; margin-bottom: 22px; }
   label { font-size: 11px; color: #04f5ff; letter-spacing: 1.5px; text-transform: uppercase; display: block; margin-bottom: 6px; font-weight: 700; }
@@ -124,6 +125,9 @@
   .history-label { font-size: 12px; letter-spacing: 1.5px; color: #04f5ff; text-transform: uppercase; margin-bottom: 10px; font-weight: 700; }
   .gw-card { background: #2b002e; border: 1px solid #4a0e50; border-radius: 10px; padding: 14px; margin-bottom: 10px; }
   .gw-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .odds-input { width: 82px; padding: 9px 8px; background:#1a0020; border:1px solid #55105c; border-radius:6px; color:#fff; font-size:14px; font-family:inherit; text-align:center; }
+  .odds-input:focus { outline:none; border-color:#04f5ff; }
+  .odds-chip { font-size:10px; opacity:.75; font-weight:800; }
   .lock-note { color:#04f5ff; font-weight:400; font-size:11px; }
   .gw-title { font-weight: 800; color: #ffffff; }
   .del-btn { background: none; border: none; color: #a882ac; cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
@@ -194,6 +198,12 @@
 //  PASTE YOUR FIREBASE CONFIG BETWEEN THE BRACES BELOW
 //  (Firebase console > Project settings > Your apps > Web app)
 // ============================================================
+// ============================================================
+//  ODDS + RESULTS API  (free key from odds-api.io)
+//  Leave as PASTE_... to keep everything manual.
+// ============================================================
+const ODDS_API_KEY = "f30bd4593ae1fdaa33b791f047f2a8accfc8e20aec05768ab810e8aab9e6b03b";
+
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyC1b4nZbdAQhHWxpF_P6Pe-XEbf3nrzR8E",
   authDomain: "league-table-dcb62.firebaseapp.com",
@@ -224,16 +234,16 @@ const SEED_WEEK_1 = {
   gameweek: 'Match week 1',
   entries: {
     '1Hit Weston': [
-      { team: 'Middlesbrough', result: 'win' },
-      { team: 'Cambridge United', result: 'win' }
+      { team: 'Middlesbrough', result: 'win', odds: 1.49 },
+      { team: 'Cambridge United', result: 'win', odds: 2.16 }
     ],
     'Mike the shovel Higgins': [
-      { team: 'Bradford City', result: 'win' },
-      { team: 'Barnsley', result: 'lose' }
+      { team: 'Bradford City', result: 'win', odds: 1.61 },
+      { team: 'Barnsley', result: 'lose', odds: 2.23 }
     ],
     'Michael J Owen': [
-      { team: 'Bradford City', result: 'win' },
-      { team: 'Sheffield United', result: 'draw' }
+      { team: 'Bradford City', result: 'win', odds: 1.61 },
+      { team: 'Sheffield United', result: 'draw', odds: 2.20 }
     ]
   },
   payments: {
@@ -400,6 +410,158 @@ function resultLabel(r) {
   return r === 'win' ? 'Win' : r === 'draw' ? 'Draw' : r === 'lose' ? 'Lose' : 'Pending';
 }
 
+
+// ---- Automatic odds + results -----------------------------------------
+// Reads from odds-api.io and fills in prices, then settles results once
+// the Saturday 5pm lock has lifted. Never overwrites anything already set
+// by hand.
+
+function normaliseTeam(n) {
+  return String(n || '')
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/\b(fc|afc|association football club|football club)\b/g, '')
+    .replace(/\bunited\b/g, 'utd')
+    .replace(/\bwanderers\b/g, 'wdrs')
+    .replace(/\balbion\b/g, '')
+    .replace(/\bcity\b/g, '')
+    .replace(/\btown\b/g, '')
+    .replace(/\brovers\b/g, '')
+    .replace(/\bcounty\b/g, '')
+    .replace(/\bathletic\b/g, '')
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
+function teamsMatch(a, b) {
+  const x = normaliseTeam(a), y = normaliseTeam(b);
+  if (!x || !y) return false;
+  return x === y || x.startsWith(y) || y.startsWith(x);
+}
+
+// Pull the 1X2 home/away price out of whatever shape the bookmaker block is
+function extractMoneyline(ev) {
+  const books = ev.bookmakers || {};
+  for (const bk of Object.keys(books)) {
+    const markets = books[bk] || [];
+    for (const m of markets) {
+      const nm = (m.name || '').toLowerCase();
+      if (nm === 'ml' || nm.includes('money') || nm.includes('1x2') || nm.includes('match')) {
+        const o = (m.odds && m.odds[0]) || {};
+        const home = parseFloat(o.home), away = parseFloat(o.away);
+        if (!isNaN(home) || !isNaN(away)) return { home, away };
+      }
+    }
+  }
+  return null;
+}
+
+// Work out win/draw/lose for the team the punter backed
+function outcomeFor(ev, team) {
+  const sc = ev.score || ev.scores || ev.result || null;
+  if (!sc) return null;
+  const h = parseInt(sc.home ?? sc.homeScore ?? sc.ft?.home, 10);
+  const a = parseInt(sc.away ?? sc.awayScore ?? sc.ft?.away, 10);
+  if (isNaN(h) || isNaN(a)) return null;
+  const status = String(ev.status || ev.state || '').toLowerCase();
+  const finished = !status || status.includes('ft') || status.includes('final')
+                 || status.includes('finish') || status.includes('end');
+  if (!finished) return null;
+  const backedHome = teamsMatch(team, ev.home);
+  if (h === a) return 'draw';
+  const homeWon = h > a;
+  return (backedHome === homeWon) ? 'win' : 'lose';
+}
+
+async function syncOddsAndResults() {
+  if (typeof ODDS_API_KEY === 'undefined' || ODDS_API_KEY.indexOf('PASTE') === 0) return;
+  if (!picks.length || !dbReady) return;
+
+  let events = [];
+  try {
+    const res = await fetch('https://api.odds-api.io/v3/events?sport=football&apiKey=' + encodeURIComponent(ODDS_API_KEY));
+    if (!res.ok) throw new Error('status ' + res.status);
+    const data = await res.json();
+    events = Array.isArray(data) ? data : (data.events || data.data || []);
+  } catch (e) {
+    setStatus('Live \u2014 odds feed unavailable, enter by hand', 'good');
+    return;
+  }
+  if (!events.length) return;
+
+  let changed = 0;
+  // only bother with the last couple of match weeks
+  const recent = [...picks].sort((a, b) => (b.week || 0) - (a.week || 0)).slice(0, 3);
+
+  recent.forEach(gw => {
+    const unlocked = !resultsLocked(gw);
+    PARTICIPANTS.forEach(person => {
+      const list = (gw.entries && gw.entries[person]) || [];
+      list.forEach(pick => {
+        const ev = events.find(e => teamsMatch(pick.team, e.home) || teamsMatch(pick.team, e.away));
+        if (!ev) return;
+
+        // odds: only if not already set
+        if (!pick.odds) {
+          const ml = extractMoneyline(ev);
+          if (ml) {
+            const price = teamsMatch(pick.team, ev.home) ? ml.home : ml.away;
+            if (price && price > 1) { pick.odds = price; changed++; }
+          }
+        }
+        // result: only once unlocked and still pending
+        if (unlocked && pick.result === 'pending') {
+          const out = outcomeFor(ev, pick.team);
+          if (out) { pick.result = out; changed++; }
+        }
+      });
+    });
+  });
+
+  if (changed) {
+    save(picks);
+    renderAll();
+  }
+}
+
+// --- Fractional odds ---------------------------------------------------
+// Stored as decimal so averages are sound; shown as the nearest
+// traditional bookmaker fraction.
+const ODDS_LADDER = [
+  [1,10],[1,9],[1,8],[1,7],[1,6],[1,5],[2,9],[1,4],[2,7],[3,10],[1,3],[4,11],
+  [2,5],[4,9],[1,2],[8,15],[4,7],[8,13],[2,3],[8,11],[4,5],[5,6],[10,11],[1,1],
+  [11,10],[6,5],[5,4],[11,8],[3,2],[8,5],[13,8],[7,4],[15,8],[2,1],[85,40],[9,4],
+  [5,2],[11,4],[3,1],[10,3],[7,2],[4,1],[9,2],[5,1],[11,2],[6,1],[13,2],[7,1],
+  [15,2],[8,1],[9,1],[10,1],[11,1],[12,1],[14,1],[16,1],[20,1],[25,1],[33,1],[50,1]
+];
+
+function toFractional(dec) {
+  if (!dec || dec <= 1) return '\u2014';
+  const target = dec - 1;
+  let best = ODDS_LADDER[0], bestGap = Infinity;
+  for (const [n, d] of ODDS_LADDER) {
+    const gap = Math.abs(n / d - target);
+    if (gap < bestGap) { bestGap = gap; best = [n, d]; }
+  }
+  if (best[0] === 1 && best[1] === 1) return 'Evens';
+  return best[0] + '/' + best[1];
+}
+
+// Accepts "5/4", "2.25" or "evens"
+function parseOdds(raw) {
+  if (!raw) return null;
+  const t = String(raw).trim().toLowerCase();
+  if (!t) return null;
+  if (t === 'evens' || t === 'evs' || t === 'even') return 2;
+  if (t.includes('/')) {
+    const [n, d] = t.split('/').map(parseFloat);
+    if (!isNaN(n) && !isNaN(d) && d > 0) return n / d + 1;
+    return null;
+  }
+  const v = parseFloat(t);
+  return !isNaN(v) && v > 1 ? v : null;
+}
+
 // The Saturday 5pm that results unlock for a week created now
 function upcomingSaturday5pm(from) {
   const d = new Date(from || Date.now());
@@ -504,7 +666,9 @@ function computeTable() {
     const draws = settled.filter(r => r.result === 'draw').length;
     const losses = settled.filter(r => r.result === 'lose').length;
     const pendingCount = rounds.length - settled.length;
-    return { name: p, points, wins, draws, losses, played: settled.length, pending: pendingCount };
+    const priced = rounds.filter(r => typeof r.odds === 'number' && r.odds > 0);
+    const avgOdds = priced.length ? priced.reduce((a, r) => a + r.odds, 0) / priced.length : null;
+    return { name: p, points, wins, draws, losses, played: settled.length, pending: pendingCount, avgOdds };
   }).sort((a,b) => b.points - a.points || b.wins - a.wins);
 }
 
@@ -514,17 +678,18 @@ function renderTable() {
   let html = `<thead><tr>
     <th>#</th><th>Punter</th><th class="center">P</th>
     <th class="center w">W</th><th class="center d">D</th><th class="center l">L</th>
-    <th class="center">Pts</th>${anyPending ? '<th class="center">Pend</th>' : ''}
+    <th class="center">Pts</th><th class="center">Odds</th>${anyPending ? '<th class="center">Pend</th>' : ''}
   </tr></thead><tbody>`;
   table.forEach((row, i) => {
     html += `<tr class="${i===0 && row.points > 0 ? 'leader' : ''}">
       <td class="rank">${i===0 && row.points > 0 ? '&#127942;' : i+1}</td>
-      <td class="name"><span class="name-cell">${badgeImg(row.name, 34)}<span>${escapeHtml(row.name)}</span></span></td>
+      <td class="name"><span class="name-cell">${badgeImg(row.name, 28)}<span>${escapeHtml(row.name)}</span></span></td>
       <td class="center">${row.played}</td>
       <td class="center w">${row.wins}</td>
       <td class="center d">${row.draws}</td>
       <td class="center l">${row.losses}</td>
       <td class="center pts">${row.points}</td>
+      <td class="center avg-odds">${row.avgOdds ? toFractional(row.avgOdds) : '&mdash;'}</td>
       ${anyPending ? `<td class="center" style="color:#a882ac;">${row.pending || ''}</td>` : ''}
     </tr>`;
   });
@@ -556,11 +721,13 @@ function renderMyPickInputs() {
   }
   [0,1].forEach(idx => {
     const val = existing && existing[idx] ? escapeHtml(existing[idx].team) : '';
+    const od = existing && existing[idx] && existing[idx].odds ? existing[idx].odds : '';
     html += `<div class="pick-row">
       <div class="team-search-wrap">
         <input type="text" class="team-input" value="${val}" placeholder="Team ${idx+1} \u2014 start typing\u2026" autocomplete="off">
         <div class="autocomplete-list"></div>
       </div>
+      <input type="text" class="odds-input" value="${od ? toFractional(od) : ''}" placeholder="e.g. 5/4" autocomplete="off">
     </div>`;
   });
   html += `</div>`;
@@ -666,7 +833,7 @@ function renderHistory() {
       }
       entries.forEach((pick, pIdx) => {
         html += `<span class="badge" style="background:${resultBg(pick.result)};color:${resultColor(pick.result)}; display:inline-flex; align-items:center; gap:4px;">
-          ${escapeHtml(pick.team)}
+          ${escapeHtml(pick.team)}${pick.odds ? ` <span class="odds-chip">${toFractional(pick.odds)}</span>` : ''}
           <select class="inline-result-select" ${locked ? 'disabled' : ''} data-gwid="${gw.id}" data-person="${escapeHtml(p)}" data-pickidx="${pIdx}" style="background:transparent; color:inherit; border:none; font-weight:600; font-size:12px; font-family:inherit; ${locked ? 'opacity:.55;' : ''}">
             <option value="pending" ${pick.result==='pending'?'selected':''}>Pending</option>
             <option value="win" ${pick.result==='win'?'selected':''}>Win (3)</option>
@@ -853,10 +1020,16 @@ document.getElementById('saveGwBtn').addEventListener('click', () => {
   const inputs = document.querySelectorAll('.team-input');
   const list = [];
   let ok = true;
-  inputs.forEach(inp => {
+  const gwExisting = picks.find(g => g.week === week);
+  const oddsBoxes = document.querySelectorAll('.odds-input');
+  inputs.forEach((inp, i) => {
     const team = inp.value.trim();
     if (!team) ok = false;
-    list.push({ team, result: 'pending' });
+    const raw = oddsBoxes[i] ? parseOdds(oddsBoxes[i].value) : null;
+    const prior = (gwExisting && gwExisting.entries && gwExisting.entries[person] && gwExisting.entries[person][i]) || null;
+    const entry = { team, result: prior && prior.team === team ? prior.result : 'pending' };
+    if (raw) entry.odds = raw;
+    list.push(entry);
   });
   if (!ok) {
     errorEl.textContent = "Both of your teams need filling in.";
@@ -889,6 +1062,8 @@ document.getElementById('resetBtn').addEventListener('click', () => {
 
 initFirebase();
 setInterval(() => { if (picks.length) renderAll(); }, 60000);
+setTimeout(syncOddsAndResults, 2500);
+setInterval(syncOddsAndResults, 600000);
 </script>
 </body>
 </html>
