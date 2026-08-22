@@ -593,7 +593,7 @@ async function syncOddsAndResults() {
   renderFollow();
   window.__evDebug = 'event keys: ' + Object.keys(events[0] || {}).slice(0, 8).join(',');
 
-  let changed = 0, wanted = 0, matched = 0;
+  let changed = 0, wanted = 0, matched = 0, needed = 0;
   const touched = new Set();
 
   // Cache odds per event so we only ask once per fixture
@@ -689,6 +689,7 @@ async function syncOddsAndResults() {
 
         // odds: fetched per fixture, only if not already set
         if (!pick.odds && ev.id) {
+          needed++;
           const ml = extractMoneyline(ev) || await oddsForEvent(ev.id);
           if (ml) {
             const price = teamsMatch(pick.team, ev.home) ? ml.home : ml.away;
@@ -705,10 +706,12 @@ async function syncOddsAndResults() {
   }
 
   const priced = Object.values(oddsCache).filter(Boolean).length;
-  if (priced === 0) {
-    setOdds('DEBUG \u2014 ' + (window.__evDebug || '') + ' \u2014 ' + (window.__oddsDebug || 'no odds call made'), 'bad');
+  if (needed === 0) {
+    setOdds(`Odds feed: all ${matched} picks priced`, 'good');
+  } else if (priced === 0) {
+    setOdds('Odds feed: ' + (window.__oddsDebug || 'no prices returned'), 'bad');
   } else {
-    setOdds(`Odds feed: matched ${matched}/${wanted} \u00b7 priced ${priced} \u00b7 ${changed} updated`, 'good');
+    setOdds(`Odds feed: matched ${matched}/${wanted} \u00b7 ${changed} priced`, 'good');
   }
   if (changed) {
     touched.forEach(saveWeek);
