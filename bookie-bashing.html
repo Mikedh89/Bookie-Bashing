@@ -80,6 +80,9 @@
   td.pts { font-weight: 900; font-size: 19px; color: #00ff85; }
   .w { color: #00ff85; } .d { color: #04f5ff; } .l { color: #ff5c8a; }
   .rank { color: #a882ac; font-weight: 700; }
+  .badge-img { border-radius: 50%; object-fit: cover; vertical-align: middle; border: 2px solid #55105c; background: #1a0020; }
+  tbody tr.leader .badge-img { border-color: #00ff85; }
+  .name-cell { display: flex; align-items: center; gap: 10px; }
 
   .panel { background: #2b002e; border: 1px solid #55105c; border-radius: 10px; padding: 20px; margin-bottom: 22px; }
   label { font-size: 11px; color: #04f5ff; letter-spacing: 1.5px; text-transform: uppercase; display: block; margin-bottom: 6px; font-weight: 700; }
@@ -202,6 +205,14 @@ const FIREBASE_CONFIG = {
 </script>
 <script>
 const PARTICIPANTS = ['1Hit Weston', 'Mike the shovel Higgins', 'Michael J Owen'];
+
+const BADGES = {"Mike the shovel Higgins": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAkGBwgHBgkIBwgKCgkLDRYPDQwMDRsUFRAWIB0iIiAdHx8kKDQsJCYxJx8fLT0tMTU3Ojo6Iys/RD84QzQ5Ojf/2wBDAQoKCg0MDRoPDxo3JR8lNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzf/wAARCABgAGADASIAAhEBAxEB/8QAGwAAAgMBAQEAAAAAAAAAAAAABQYDBAcCAQD/xAA3EAACAQMDAgQEAwcEAwAAAAABAgMABBEFEiExQQYTIlEyYXGBFKGxFUJikcHR4RYjJfFScvD/xAAZAQADAQEBAAAAAAAAAAAAAAABAgQDAAX/xAAiEQACAgICAgMBAQAAAAAAAAABAgADESESMQRBEyJRYbH/2gAMAwEAAhEDEQA/ANNwoGKgkbtmq7NMo5JP0bP6j+tcy3KoAZAFHT1HGT9s1YGHuQlT6nrgnqa421NbNHdbvKYHb1/7oR4lv47W0eCGSTzjgEwnlc9OnP8AKma0KuYq1lmxJ76+tLBC11OqkfuAgsftQ2DxNZXEcjRxXICg8tFwfpjNJd94h0+Mm3mt1MGChVl3EezAZyDnn50CPiKbTmBs7gSKFwrhWTH27fWpmvdutStfHRe9zR9L1Ca8Y3DKjkep5Ypt2AOApTrjviiia3Ym4MDMUYNtOT0Pzz0+9YSNRmE5lWRkdssGU4IP/wBmitlfyT/7sUpjmlOHK9C/+fb3pQ1ibBjNXW/Ym54/7HevdtIPgnxDPFdDT9TkJV+FJ42v2I+RB5HYj61ouzAzVtdgcSGysocSvtr7GOte25DRgeYHfknHapCtOrBhkRMYncVzbz4jSVS//ieD/I80H1qcxXKx+Wrrt9QPfNGFinmUpceXIQcjr6cd/fPzFDrzT5Li58y6VVGQMb+W+dRFww1LPjKtLumpHYaNJcR+rc7OAe/OB+lZR4tvSdVaVWQSnn0jABx0GOK0/V7i3s9HtrG4YDzkA3OPT1GfvzWP6laHUPFM9rEwaMyt605GwHt+lZu28fkanbEwFKt5etkKSgPpeul0K+lQu7Hd7mtHXS4YIY1VANoxXht0zyBWPy46l4oyNzOP9PXSqCSCeuKtwwaxaWbwxtlOykCnt4kx8FciBWYbk4+YoiwnuA0gdREsL6T9oW3nJ5M6SgFscEnp/Ot2m1C3WyjcSZ3kKcH1KDxnH2NZzr+mw2N1ZalDEpRZFSQMMggnvRvVL5bZJdgZLqQACNkLJj3BB7jnOO1F7mrGVkVtecZl3TNWjtJZoyfRJK3HdB2OAPYfOiF7q6W9tC9uC20ZKvwzkHbj5ckUpfirloCIgVAwrbtmSOuSe3fp2xRJ03RQy/ikmtrZdzNv2bznvnqMY4HHNTV32qCMzNkXMb4LZ0thJfiaK6EQ3n93O7gDtmoJEYyySW9wk8KkkLu9QA657HH15plkC+SzKSyMBtydwPHb5UDu7O2gSW6jLRvHbSelMBfhODj3xVK6lbEGZrD4r1affbXUyT24bISaMNge32qp4Uj/AOUuZDt3FcbvbJobBLeI2DJG67STujGeB+tEdHuoYLV03Frt8ySbRwq9BzQYnjDSo5RmuJVQkB1yO5NUnuYS2xnRn/galDUrhJpnQ75WBwQCcCvNJj23MbMpQhsAknB+VZcDjMsFm8RwM8KAKSMkZ5NeR3SbgC6HPYNmlvV1WWR23klV2kDP6VSsXtbaUfiUuE5+NF5+2TRVTEd5oviO1X/TEjxtvBZM/wAJyM0G8Q3bQSaVLEx80QepgR2JFFdN1CGWxksY47q9S4by1BVQykrnJGcY/tS/q6vb2lospSaILIqyqCA/q9zzn5H50XTmmDJbBme28yPNC1tb72kZjI+MrknvnpTBo+o293MsEsSSQ71CQsMR7ujOe2MdumaQFnaKRljUEFdpXscUQsb0wqUMUboV9QbNTrTZWcoZiy5jz4e8UrYWPlX3mSoPgXPKnvj5VzrXi+3ubC5ht4JEkkjZcsRjniuLfRrWS3D26+lum45x96WvEFtBp9wkTzIrSc7WbnFSU+a113Aa/n+z1bqkUFoMtS6MTGzK+AFK8EcjNGoraPZGpTAMeMqOOD/mg8GROsilSobORgg0btpRt2hiNjFeO3Jr0bP2Y0MCvGefs5CmyP0Dvt4/OoRp8TXdra2/7snmSN3IHb7k13dT3IB2shxwPRVQazNYusfkoowAzj4mP9qUGU4HuWbyyhW/nSQ4SYBlU9Bjg4/KpY9IdYiVVmjH3GKpftU3zlRAjgAlXJ5U+4opb38wiUDYDjnCgGmJihRuXdBjW3vEK+lVG7PTnt/WljX2KSBI2xvkLP8AMDP96NrcFJdwYlnIXr70ta8+7UZhkNsJjGPl1/PNOBnEmZ+IYD3B8Dz73KxxOM/vZBqxHdtGNzWZ2njKSZ/Worfi2LD4mzgYq2qDdFvX4VztHvTyWP2t69aaPAba2RGmUYSJTwg/i/t1pEnne+d57thLK6ksSP0o7qHgy9tIGnmv7Uhj1XeevcnHA+ddy+C5LeN1fU4nnCKfJijJZlIzuXJG4fTn5VL43iJQPr2fcotsew76iq1tCqhgm07NxKnFXbS+S3dklZiOD884/rTZbeBraawW7bWWkhkUYMFv+XqPX5Up+NbCHQtT8iCd5A8aud4AYE9uPpVBXOoqZU5kuo6iIGiRdpZxnJ5AHvQpmiv3aT8YGPZgM4qCwv45r6A3BOFGAPbnvRa6n0tJf922jLdN+wUmOOpSrK+2MpWwFpKxguoyQcMp4x8qLWN6s0Ukj4UIcNk1UV9PkiZ44Qi4ySVHWgsOoBI2hTGxpGP19qPHlEZlQ/WMj3e53dX2BEJRmbAz2oPE2+aVnCudj7QWzuYjA+p5z9q8uXElqpYcSEDH8I/zVeIL+HNv5IO912ueq7ckgH7jP0p+pKxyYQWMoiJg7cjk1PE26Yk9AfyFUmtTGFMM8sZ25wHPWpEW8ycXO4Lxl1B612YJp9nrEbxgXp9bW5WU4w3pk25z16Gl3WYJYLaGSK5YNY3T25dcbm6sjZ9+tceKfF51eC1kGnxW7yI26UNlyAfh6DjIBqK3u2utIv8Azc5muoZNvsSW/pRlAORuGtEkgitzNPK5nBJlbdwSQDyOmRkEUleN0E08d1CXkR1JBcckZNELWX/ivNYrvluCxHU8/wBKmvLdbzTYx1ZBg0jniczQLyBEzMO8NyrncQeemKaLe7gNqplQMMjJofeaYVYrghfp0+lUTYTrwrsqnsDRJDTIBlPUu6xqaMDHAoXIwQKo6bbzXVwkaglmwMV3HpchO4jdk+/Jpr0C1jsCkzghuxHUn5U3IDQi8STkxxl8Cade6faxW80iXCJ5ZkQ5DP1OQeD39ulKuseENV0UrLJCZrdFwbmLJUEk/EOq8Y6/zpmttYbS5bOO8guQXmEhkRdytGFbdt75B/SnPTtattSt/OtpUuJkby5FiOD14JB7EUISgMxMSZYHHA++RUvmbLfj4nz+fFabr/grS9T3TWjrp90xPMa5ic/+vb6j+VImu+G9W0c77u3zbr0njO5D7c9vviumZUjuf//Z","1Hit Weston": "data:image/jpeg;base64,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","Michael J Owen": "data:image/jpeg;base64,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"};
+
+function badgeImg(person, size) {
+  const src = BADGES[person];
+  if (!src) return '';
+  return `<img class="badge-img" src="${src}" alt="" style="width:${size}px;height:${size}px;">`;
+}
 const TOTAL_WEEKS = 42;
 
 // Week 1 was played before this tracker existed. Only the points totals were
@@ -390,17 +401,25 @@ function paymentsFor(gw) {
   return gw.payments;
 }
 
-// Total actually in the kitty, and how much is still missing
+// The week the kitty is currently collecting for (highest week logged)
+function currentWeek() {
+  const ws = usedWeeks();
+  return ws.length ? Math.max(...ws) : null;
+}
+
+// Kitty for the current week only - resets each week
 function kittyTotals() {
+  const w = currentWeek();
+  const gw = picks.find(g => g.week === w);
   let banked = 0, outstanding = 0;
-  picks.forEach(gw => {
+  if (gw) {
     const pay = paymentsFor(gw);
     PARTICIPANTS.forEach(p => {
       if (pay[p].status === 'paid' || pay[p].status === 'covered') banked += STAKE;
       else outstanding += STAKE;
     });
-  });
-  return { banked, outstanding };
+  }
+  return { banked, outstanding, week: w };
 }
 
 // Net off debts between each pair so A owes B a single figure
@@ -462,7 +481,7 @@ function renderTable() {
   table.forEach((row, i) => {
     html += `<tr class="${i===0 && row.points > 0 ? 'leader' : ''}">
       <td class="rank">${i===0 && row.points > 0 ? '&#127942;' : i+1}</td>
-      <td class="name">${escapeHtml(row.name)}</td>
+      <td class="name"><span class="name-cell">${badgeImg(row.name, 34)}<span>${escapeHtml(row.name)}</span></span></td>
       <td class="center">${row.played}</td>
       <td class="center w">${row.wins}</td>
       <td class="center d">${row.draws}</td>
@@ -602,7 +621,7 @@ function renderHistory() {
       </div>`;
     PARTICIPANTS.forEach(p => {
       const entries = gw.entries[p] || [];
-      html += `<div class="gw-row"><span>${escapeHtml(p)}</span><span style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">`;
+      html += `<div class="gw-row"><span class="name-cell">${badgeImg(p, 22)}<span>${escapeHtml(p)}</span></span><span style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">`;
       if (entries.length === 0) {
         html += `<span style="color:#7d5983; font-size:12px; font-style:italic;">no picks in yet</span>`;
       }
@@ -625,7 +644,7 @@ function renderHistory() {
       const st = pay[p];
       const others = PARTICIPANTS.filter(o => o !== p);
       html += `<div class="pay-row">
-        <span>${escapeHtml(p)}</span>
+        <span class="name-cell">${badgeImg(p, 20)}<span>${escapeHtml(p)}</span></span>
         <span class="pay-controls">
           <select class="pay-status" data-gwid="${gw.id}" data-person="${escapeHtml(p)}">
             <option value="unpaid" ${st.status==='unpaid'?'selected':''}>Not paid</option>
@@ -715,24 +734,25 @@ function renderKitty() {
   const section = document.getElementById('kittySection');
   if (picks.length === 0) { section.innerHTML = ''; return; }
 
-  const { banked, outstanding } = kittyTotals();
+  const { banked, outstanding, week } = kittyTotals();
   const debts = netDebts();
 
   let html = `<div class="kitty">
     <div class="kitty-head">
-      <span class="kitty-label">The Kitty</span>
-      <span class="kitty-total">\u00a3${banked}${outstanding ? `<small>\u00a3${outstanding} still owed to the pot</small>` : ''}</span>
+      <span class="kitty-label">Week ${week} Kitty</span>
+      <span class="kitty-total">\u00a3${banked}<small>of \u00a3${banked + outstanding}</small></span>
     </div>`;
 
-  // Members in arrears on their own stake
-  const arrears = PARTICIPANTS
-    .map(p => ({ p, weeks: unpaidWeeks(p) }))
-    .filter(x => x.weeks.length > 0);
-
-  if (arrears.length) {
-    arrears.forEach(({ p, weeks }) => {
-      html += `<div class="arrears">${escapeHtml(p)} hasn\u2019t paid for week${weeks.length > 1 ? 's' : ''} ${weeks.join(', ')} &mdash; \u00a3${weeks.length * STAKE}</div>`;
-    });
+  // Who still owes their stake for this week
+  const gwNow = picks.find(g => g.week === week);
+  if (gwNow) {
+    const pay = paymentsFor(gwNow);
+    const owing = PARTICIPANTS.filter(p => pay[p].status === 'unpaid');
+    if (owing.length) {
+      html += `<div class="arrears">Still to pay this week: ${owing.map(escapeHtml).join(', ')}</div>`;
+    } else {
+      html += `<div class="owed-clear">Everyone\u2019s paid in for week ${week}.</div>`;
+    }
   }
 
   html += `<div class="pay-divider">Who owes who</div>`;
