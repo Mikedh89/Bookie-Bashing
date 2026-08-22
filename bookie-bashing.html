@@ -233,7 +233,7 @@
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 36</div>
+    <div class="sync-status" style="color:#7d5983;">build 37</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -694,7 +694,7 @@ async function syncOddsAndResults() {
   // Cache odds per event so we only ask once per fixture
   const oddsCache = {};
   let oddsCalls = 0;
-  const MAX_ODDS_CALLS = 12;
+  const MAX_ODDS_CALLS = 12;   // per pass
   // The odds endpoint needs a bookmaker; the free tier only allows a couple,
   // so try a few common ones until one answers.
   // The two bookmakers selected on the odds-api.io free tier.
@@ -1562,16 +1562,24 @@ let buildingBoard = false;
 async function buildOddsBoard(week, fixtures) {
   if (buildingBoard) return;
   const existing = oddsBoard['week_' + week];
-  if (existing && existing.odds && Object.keys(existing.odds).length && !oddsDue(existing.taken)) return;
+  const fixtureCount = fixtures.length;
+  const havePrices = existing && existing.odds ? Object.keys(existing.odds).length : 0;
+  const complete = havePrices >= fixtureCount;          // roughly one price per side
+  if (existing && complete && !oddsDue(existing.taken)) return;
   if (typeof ODDS_API_KEY === 'undefined' || ODDS_API_KEY.indexOf('PASTE') === 0) return;
   if (Date.now() < rateLimitedUntil) return;
   buildingBoard = true;
   setOdds('Taking odds snapshot for match week ' + week + '\u2026');
 
-  const odds = {};
+  // carry on from whatever the last pass managed, so no single load
+  // makes more than a handful of requests
+  const prior = (existing && existing.odds) || {};
+  const odds = Object.assign({}, prior);
   let calls = 0;
+  const BATCH = 15;
   for (const ev of fixtures) {
-    if (calls >= 45) break;                       // stay inside the hourly cap
+    if (calls >= BATCH) break;                    // small batch per load
+    if (odds[ev.home] && odds[ev.away]) continue; // already priced
     if (!ev.id) continue;
     calls++;
     try {
@@ -1595,7 +1603,11 @@ async function buildOddsBoard(week, fixtures) {
     oddsBoard['week_' + week] = snap;
     boardRef.child('week_' + week).set(snap).catch(() => {});
     repriceOpenPicks(week, odds);
-    setOdds('Odds refreshed \u00b7 ' + Object.keys(odds).length + ' prices', 'good');
+    if (calls >= BATCH) setTimeout(() => buildOddsBoard(week, fixtures), 90000);   // top up in 90s
+    const done = fixtures.filter(f => odds[f.home] || odds[f.away]).length;
+    setOdds(done >= fixtures.length
+      ? 'Odds complete \u00b7 ' + fixtures.length + ' fixtures'
+      : 'Odds ' + done + '/' + fixtures.length + ' \u00b7 more on next load', 'good');
     renderPickPrompt();
   } else {
     setOdds('Could not take odds snapshot \u2014 pick without prices', 'bad');
