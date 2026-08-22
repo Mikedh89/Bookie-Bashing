@@ -186,7 +186,7 @@
   <div class="header">
     <div class="eyebrow">The Syndicate Presents</div>
     <h1>Bookie Bashing</h1>
-    <div class="sub">3pts a win &middot; 1pt a draw &middot; 0pts a loss &middot; log picks before kickoff, results added after</div>
+    <div class="sub">3pts a win &middot; nothing for a draw or a loss &middot; log picks before kickoff, results added after</div>
     <div class="season-line" id="seasonLine"></div>
     <div class="update-note">Picks in before kickoff &middot; table updated about an hour after full time</div>
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
@@ -470,7 +470,7 @@ function populateWeekSelect() {
 }
 
 function pointsFor(result) {
-  return result === 'win' ? 3 : result === 'draw' ? 1 : 0;
+  return result === 'win' ? 3 : 0;   // draws and losses score nothing
 }
 function resultColor(r) {
   return r === 'win' ? '#003d1f' : r === 'draw' ? '#003b40' : r === 'lose' ? '#5c0018' : '#e8d4ea';
@@ -889,7 +889,7 @@ function computeTable() {
       const atHome = teamsMatch(r.team, ev.home);
       const mine = atHome ? sc.h : sc.a;
       const theirs = atHome ? sc.a : sc.h;
-      livePts += mine > theirs ? 3 : mine === theirs ? 1 : 0;
+      livePts += mine > theirs ? 3 : 0;
       liveOn++;
     });
     const priced = rounds.filter(r => typeof r.odds === 'number' && r.odds > 0);
@@ -1087,7 +1087,7 @@ function renderHistory() {
           <select class="inline-result-select" ${locked ? 'disabled' : ''} data-gwid="${gw.id}" data-person="${escapeHtml(p)}" data-pickidx="${pIdx}" style="background:transparent; color:inherit; border:none; font-weight:600; font-size:12px; font-family:inherit; ${locked ? 'opacity:.55;' : ''}">
             <option value="pending" ${pick.result==='pending'?'selected':''}>Pending</option>
             <option value="win" ${pick.result==='win'?'selected':''}>Win (3)</option>
-            <option value="draw" ${pick.result==='draw'?'selected':''}>Draw (1)</option>
+            <option value="draw" ${pick.result==='draw'?'selected':''}>Draw (0)</option>
             <option value="lose" ${pick.result==='lose'?'selected':''}>Lose (0)</option>
           </select>
         </span>`;
