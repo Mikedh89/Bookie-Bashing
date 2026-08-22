@@ -528,7 +528,14 @@ function outcomeFor(ev, team) {
   return (backedHome === homeWon) ? 'win' : 'lose';
 }
 
+let rateLimitedUntil = 0;
+
 async function syncOddsAndResults() {
+  if (Date.now() < rateLimitedUntil) {
+    const mins = Math.ceil((rateLimitedUntil - Date.now()) / 60000);
+    setOdds('Odds feed: rate limited \u2014 retrying in ' + mins + ' min', 'bad');
+    return;
+  }
   if (typeof ODDS_API_KEY === 'undefined' || ODDS_API_KEY.indexOf('PASTE') === 0) return;
   if (!picks.length || !dbReady) return;
 
@@ -536,6 +543,11 @@ async function syncOddsAndResults() {
   setOdds('Odds feed: checking\u2026');
   try {
     const res = await fetch('https://api.odds-api.io/v3/events?sport=football&apiKey=' + encodeURIComponent(ODDS_API_KEY));
+    if (res.status === 429) {
+      rateLimitedUntil = Date.now() + 3600000;
+      setOdds('Odds feed: hourly limit reached \u2014 retrying in 60 min', 'bad');
+      return;
+    }
     if (!res.ok) { setOdds('Odds feed: HTTP ' + res.status, 'bad'); return; }
     const data = await res.json();
     events = Array.isArray(data) ? data : (data.events || data.data || data.results || []);
@@ -601,6 +613,7 @@ async function syncOddsAndResults() {
     for (const book of order) {
       try {
         const res = await tryOdds(id, book);
+            if (res.status === 429) { rateLimitedUntil = Date.now() + 3600000; return null; }
         if (!res.ok) { lastErr = (book || 'none') + '=' + res.status + ':' + res.body; continue; }
         goodBook = book;
         const d = res.data;
