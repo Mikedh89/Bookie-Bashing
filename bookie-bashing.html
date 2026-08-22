@@ -226,7 +226,7 @@
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 20</div>
+    <div class="sync-status" style="color:#7d5983;">build 21</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1379,8 +1379,8 @@ async function fetchLeagueFixtures() {
       const d = await r.json();
       const list = Array.isArray(d) ? d : (d.leagues || d.data || []);
       note = 'leagues:' + list.length;
-      slugs = list.filter(l => wantedLeague(((l.country && (l.country.name || l.country)) || '') + ' ' + (l.name || '')) || wantedLeague((l.slug || '').replace(/-/g, ' ')))
-                  .map(l => l.slug || l.id).filter(Boolean).slice(0, 8);
+      slugs = list.filter(wantedLeagueObj).map(l => l.slug || l.id).filter(Boolean);
+      if (!slugs.length) slugs = WANTED_SLUGS.slice();
       note += ' matched:' + slugs.length;
       if (!slugs.length && list.length) {
         const eng = list.filter(l => /eng/i.test((l.name || '') + (l.slug || '')))
@@ -1390,10 +1390,7 @@ async function fetchLeagueFixtures() {
     }
   } catch (e) { note = 'leagues failed'; }
 
-  if (!slugs.length) {
-    slugs = ['england-premier-league', 'england-championship', 'england-league-one',
-             'england-league-two', 'england-national-league', 'scotland-league-one'];
-  }
+  if (!slugs.length) slugs = WANTED_SLUGS.slice();
 
   const out = [];
   for (const slug of slugs) {
@@ -1420,23 +1417,33 @@ async function fetchLeagueFixtures() {
 const LEAGUE_ORDER = ['premier league', 'championship', 'league one', 'league two',
                       'national league', 'premiership', 'scottish'];
 
-// Premier League down to National League, plus Scottish League One.
-// The country must be explicit - plenty of countries have a "Premier League".
+// Exactly these nine competitions. Matched on slug, no pattern guessing.
+const WANTED_SLUGS = [
+  'england-premier-league',
+  'england-championship',
+  'england-league-one',
+  'england-league-two',
+  'england-national-league',
+  'scotland-premiership',
+  'scotland-championship',
+  'scotland-league-one',
+  'scotland-league-two'
+];
+
+function slugify(x) {
+  return String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
 function wantedLeague(name) {
-  const n = (name || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
-  if (/women|ladies|u1[5-9]|u2[0-3]|youth|academy|reserve/.test(n)) return false;
+  return WANTED_SLUGS.indexOf(slugify(name)) !== -1;
+}
 
-  const isEngland  = /\b(england|english)\b/.test(n);
-  const isScotland = /\b(scotland|scottish)\b/.test(n);
-  if (!isEngland && !isScotland) return false;
-
-  if (isScotland) return /\bleague (one|1)\b/.test(n);
-
-  return /\bpremier league\b/.test(n)
-      || /\bchampionship\b/.test(n)
-      || /\bleague (one|1)\b/.test(n)
-      || /\bleague (two|2)\b/.test(n)
-      || /\bnational league\b/.test(n);
+// Accepts the league object from the API, checking slug first
+function wantedLeagueObj(l) {
+  if (!l) return false;
+  if (l.slug && WANTED_SLUGS.indexOf(String(l.slug).toLowerCase()) !== -1) return true;
+  const country = (l.country && (l.country.name || l.country)) || '';
+  return wantedLeague(country + ' ' + (l.name || ''));
 }
 
 function leagueName(ev) {
@@ -1535,7 +1542,7 @@ function upcomingFixtures() {
     if (d.getDay() !== 6) return false;            // Saturday only
     const mins = d.getHours() * 60 + d.getMinutes();
     if (mins < 13 * 60 + 30 || mins > 16 * 60) return false;   // afternoon kickoffs
-    return wantedLeague(leagueName(e));
+    return true;
   }).sort((a, b) => new Date(a.date) - new Date(b.date))
     .filter((e, _i, arr) => {
       // keep only the soonest Saturday's card
