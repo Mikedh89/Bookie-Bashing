@@ -552,35 +552,58 @@ async function syncOddsAndResults() {
 
   // Cache odds per event so we only ask once per fixture
   const oddsCache = {};
+  // The odds endpoint needs a bookmaker; the free tier only allows a couple,
+  // so try a few common ones until one answers.
+  const BOOKS = ['bet365', 'williamhill', 'ladbrokes', 'coral', 'betfred',
+                 'skybet', 'paddypower', 'unibet', 'betway', '888sport'];
+  let goodBook = null;
+
+  async function tryOdds(id, book) {
+    let url = 'https://api.odds-api.io/v3/odds?eventId=' + encodeURIComponent(id)
+            + '&apiKey=' + encodeURIComponent(ODDS_API_KEY);
+    if (book) url += '&bookmakers=' + encodeURIComponent(book);
+    const r = await fetch(url);
+    if (!r.ok) {
+      let body = '';
+      try { body = (await r.text()).slice(0, 90); } catch (e) {}
+      return { ok: false, status: r.status, body: body };
+    }
+    return { ok: true, data: await r.json() };
+  }
+
   async function oddsForEvent(id) {
     if (id in oddsCache) return oddsCache[id];
-    try {
-      const r = await fetch('https://api.odds-api.io/v3/odds?eventId=' + encodeURIComponent(id)
-                          + '&apiKey=' + encodeURIComponent(ODDS_API_KEY));
-      if (!r.ok) { window.__oddsDebug = 'odds HTTP ' + r.status; oddsCache[id] = null; return null; }
-      const d = await r.json();
-      if (!window.__oddsDebug) {
-        window.__oddsDebug = 'odds keys: ' + Object.keys(d || {}).slice(0, 6).join(',');
-        const bk = d && d.bookmakers;
-        if (bk) {
-          const names = Object.keys(bk).slice(0, 3);
-          window.__oddsDebug += ' | books: ' + names.join(',');
-          if (names.length) {
+    let lastErr = '';
+    const order = goodBook ? [goodBook] : BOOKS.concat([null]);
+    for (const book of order) {
+      try {
+        const res = await tryOdds(id, book);
+        if (!res.ok) { lastErr = 'HTTP ' + res.status + ' ' + res.body; continue; }
+        goodBook = book;
+        const d = res.data;
+        if (!window.__oddsDebug) {
+          window.__oddsDebug = 'book=' + (book || 'none')
+            + ' keys:' + Object.keys(d || {}).slice(0, 5).join(',');
+          const bk = d && d.bookmakers;
+          if (bk) {
+            const names = Object.keys(bk).slice(0, 2);
+            window.__oddsDebug += ' books:' + names.join(',');
             const first = bk[names[0]];
-            window.__oddsDebug += ' | mkts: ' + (Array.isArray(first)
-              ? first.map(m => m.name).slice(0, 4).join('/')
-              : Object.keys(first || {}).slice(0, 4).join('/'));
+            if (Array.isArray(first)) window.__oddsDebug += ' mkts:' + first.map(m => m.name).slice(0, 4).join('/');
           }
         }
+        const ml = extractMoneyline(d && d.bookmakers ? d : { bookmakers: (d && d.bookmakers) || d });
+        oddsCache[id] = ml;
+        return ml;
+      } catch (e) {
+        lastErr = e.message || 'fetch error';
       }
-      oddsCache[id] = extractMoneyline(d && d.bookmakers ? d : { bookmakers: (d && d.bookmakers) || d });
-      return oddsCache[id];
-    } catch (e) {
-      window.__oddsDebug = 'odds fetch failed: ' + (e.message || 'error');
-      oddsCache[id] = null;
-      return null;
     }
+    if (!window.__oddsDebug) window.__oddsDebug = 'all books failed: ' + lastErr;
+    oddsCache[id] = null;
+    return null;
   }
+
   // only bother with the last couple of match weeks
   const recent = [...picks].sort((a, b) => (b.week || 0) - (a.week || 0)).slice(0, 3);
 
