@@ -895,7 +895,12 @@ function computeTable() {
     const priced = rounds.filter(r => typeof r.odds === 'number' && r.odds > 0);
     const avgOdds = priced.length ? priced.reduce((a, r) => a + r.odds, 0) / priced.length : null;
     return { name: p, points, wins, draws, losses, played: settled.length, pending: pendingCount, avgOdds, livePts, liveOn };
-  }).sort((a,b) => (b.points + b.livePts) - (a.points + a.livePts) || b.points - a.points || b.wins - a.wins);
+  }).sort((a,b) =>
+       (b.points + b.livePts) - (a.points + a.livePts)   // live-adjusted total
+    || b.points - a.points                                // then settled points
+    || b.wins - a.wins                                    // then wins
+    || b.draws - a.draws                                  // then draws over defeats
+    || a.losses - b.losses);                              // fewest defeats
 }
 
 function renderTable() {
