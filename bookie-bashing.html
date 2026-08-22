@@ -1378,7 +1378,8 @@ function upcomingFixtures() {
     const t = d.getTime();
     if (isNaN(t) || t < now || t > horizon) return false;
     if (d.getDay() !== 6) return false;            // Saturday only
-    if (d.getHours() !== 15 || d.getMinutes() !== 0) return false;  // 3pm only
+    const mins = d.getHours() * 60 + d.getMinutes();
+    if (mins < 14 * 60 + 30 || mins > 15 * 60 + 30) return false;   // around 3pm
     const lg = ((e.league && (e.league.name || e.league.slug)) || '').toLowerCase();
     return lg.includes('england') || lg.includes('scotland')
         || lg.includes('premier league') || lg.includes('championship')
@@ -1441,7 +1442,17 @@ function renderPickPrompt() {
   }
 
   if (!fixtures.length) {
-    html += `<div class="picker-note">No fixtures loaded yet \u2014 they appear once the feed refreshes. You can still use Log my picks.</div>`;
+    const now = Date.now();
+    const future = liveEvents.filter(e => e.date && new Date(e.date).getTime() > now);
+    const sats = future.filter(e => new Date(e.date).getDay() === 6);
+    let furthest = '';
+    if (future.length) {
+      const max = Math.max(...future.map(e => new Date(e.date).getTime()));
+      furthest = new Date(max).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    }
+    html += `<div class="picker-note">No Saturday 3pm fixtures in the feed yet.<br>
+      Feed holds ${liveEvents.length} games \u00b7 ${future.length} upcoming \u00b7 ${sats.length} on a Saturday${furthest ? ' \u00b7 furthest ' + furthest : ''}.<br>
+      Use Log my picks meanwhile.</div>`;
   } else {
     // group by competition, Premier League first
     const groups = {};
