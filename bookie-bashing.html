@@ -130,6 +130,10 @@
   .odds-input:focus { outline:none; border-color:#04f5ff; }
   .odds-chip { font-size:10px; opacity:.75; font-weight:800; }
   .lock-note { color:#04f5ff; font-weight:400; font-size:11px; }
+  .gw-toggle { cursor:pointer; user-select:none; flex:1; }
+  .chev { color:#04f5ff; font-size:11px; margin-right:2px; }
+  .gw-summary { font-size:11px; color:#a882ac; font-weight:400; }
+  .gw-card.collapsed { padding:12px 14px; }
   .gw-title { font-weight: 800; color: #ffffff; }
   .del-btn { background: none; border: none; color: #a882ac; cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
   .gw-row { display: flex; justify-content: space-between; font-size: 13px; padding: 5px 0; color: #e8d4ea; align-items: center; }
@@ -987,6 +991,19 @@ function styleSelect(sel) {
   sel.style.color = resultColor(sel.value);
 }
 
+// null = default (newest open). Otherwise an explicit set of open weeks.
+let openWeeks = null;
+
+function weekSummary(gw) {
+  const parts = PARTICIPANTS.map(p => {
+    const list = (gw.entries && gw.entries[p]) || [];
+    const pts = list.filter(x => x.result !== 'pending')
+                    .reduce((a, x) => a + pointsFor(x.result), 0);
+    return p.split(' ')[0] + ' ' + pts;
+  });
+  return parts.join(' \u00b7 ');
+}
+
 function renderHistory() {
   const section = document.getElementById('historySection');
   const resetBtn = document.getElementById('resetBtn');
@@ -997,14 +1014,19 @@ function renderHistory() {
   }
   resetBtn.style.display = 'inline-flex';
   let html = '<div class="history-label">Match Week History</div>';
+  const newest = Math.max(...picks.map(g => g.week || 0));
   [...picks].reverse().forEach(gw => {
+    const open = (openWeeks === null) ? (gw.week === newest) : openWeeks.has(gw.week);
     const hasPending = PARTICIPANTS.some(p => (gw.entries[p]||[]).some(pk => pk.result === 'pending'));
     const locked = resultsLocked(gw);
-    html += `<div class="gw-card">
+    html += `<div class="gw-card${open ? "" : " collapsed"}">
       <div class="gw-head">
-        <div class="gw-title">Match week ${gw.week}${locked ? ` <span class="lock-note">&middot; \u{1F512} ${lockMessage(gw)}</span>` : hasPending ? ' <span style="color:#a882ac; font-weight:400; font-size:11px;">&middot; awaiting results</span>' : ''}</div>
+        <div class="gw-title gw-toggle" data-week="${gw.week}">
+          <span class="chev">${open ? '\u25BE' : '\u25B8'}</span> Match week ${gw.week}${locked ? ` <span class="lock-note">&middot; \u{1F512} ${lockMessage(gw)}</span>` : hasPending ? ' <span style="color:#a882ac; font-weight:400; font-size:11px;">&middot; awaiting results</span>' : ''}${open ? '' : ` <span class="gw-summary">&middot; ${weekSummary(gw)}</span>`}
+        </div>
         <button class="del-btn" data-id="${gw.id}">Delete</button>
       </div>`;
+    if (open) {
     PARTICIPANTS.forEach(p => {
       const entries = gw.entries[p] || [];
       html += `<div class="gw-row"><span class="name-cell">${badgeImg(p, 22)}<span>${escapeHtml(p)}</span></span><span style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">`;
@@ -1045,9 +1067,20 @@ function renderHistory() {
       </div>`;
     });
 
+    }
     html += `</div>`;
   });
   section.innerHTML = html;
+  document.querySelectorAll('.gw-toggle').forEach(t => {
+    t.addEventListener('click', () => {
+      const wk = Number(t.getAttribute('data-week'));
+      if (openWeeks === null) {
+        openWeeks = new Set([Math.max(...picks.map(g => g.week || 0))]);
+      }
+      if (openWeeks.has(wk)) openWeeks.delete(wk); else openWeeks.add(wk);
+      renderHistory();
+    });
+  });
   document.querySelectorAll('.del-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = Number(btn.getAttribute('data-id'));
