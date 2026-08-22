@@ -81,6 +81,8 @@
   .w { color: #00ff85; } .d { color: #04f5ff; } .l { color: #ff5c8a; }
   .rank { color: #a882ac; font-weight: 700; }
   td.avg-odds { text-align:center; color:#04f5ff; font-weight:700; font-size:13px; }
+  .live-pts { font-size:11px; font-weight:800; color:#04f5ff; margin-left:2px; vertical-align:super; }
+  .live-flag { font-size:10px; color:#04f5ff; letter-spacing:1px; text-transform:uppercase; font-weight:700; margin-top:6px; }
   td.prize { text-align:center; color:#e9c46a; font-weight:800; font-size:13px; }
   .badge-img { border-radius: 50%; object-fit: cover; vertical-align: middle; border: 2px solid #55105c; background: #1a0020; }
   tbody tr.leader .badge-img { border-color: #00ff85; }
@@ -192,6 +194,7 @@
   </div>
 
   <table id="leagueTable"></table>
+  <div id="liveFlag"></div>
 
   <div id="kittySection"></div>
   <button class="backfill-btn" id="backfillBtn">Add match week 1 odds</button>
@@ -877,10 +880,22 @@ function computeTable() {
     const draws = settled.filter(r => r.result === 'draw').length;
     const losses = settled.filter(r => r.result === 'lose').length;
     const pendingCount = rounds.length - settled.length;
+    // in-play: what pending picks are worth if the score stood right now
+    let livePts = 0, liveOn = 0;
+    rounds.filter(r => r.result === 'pending').forEach(r => {
+      const ev = findEvent(liveEvents, r.team);
+      const sc = ev ? scoreOf(ev) : null;
+      if (!sc) return;
+      const atHome = teamsMatch(r.team, ev.home);
+      const mine = atHome ? sc.h : sc.a;
+      const theirs = atHome ? sc.a : sc.h;
+      livePts += mine > theirs ? 3 : mine === theirs ? 1 : 0;
+      liveOn++;
+    });
     const priced = rounds.filter(r => typeof r.odds === 'number' && r.odds > 0);
     const avgOdds = priced.length ? priced.reduce((a, r) => a + r.odds, 0) / priced.length : null;
-    return { name: p, points, wins, draws, losses, played: settled.length, pending: pendingCount, avgOdds };
-  }).sort((a,b) => b.points - a.points || b.wins - a.wins);
+    return { name: p, points, wins, draws, losses, played: settled.length, pending: pendingCount, avgOdds, livePts, liveOn };
+  }).sort((a,b) => (b.points + b.livePts) - (a.points + a.livePts) || b.points - a.points || b.wins - a.wins);
 }
 
 function renderTable() {
@@ -899,7 +914,7 @@ function renderTable() {
       <td class="center w">${row.wins}</td>
       <td class="center d">${row.draws}</td>
       <td class="center l">${row.losses}</td>
-      <td class="center pts">${row.points}</td>
+      <td class="center pts">${row.points}${row.liveOn ? `<span class="live-pts">+${row.livePts}</span>` : ''}</td>
       <td class="center avg-odds">${row.avgOdds ? toFractional(row.avgOdds) : '&mdash;'}</td>
       <td class="center prize">${prizeFor(i) ? '\u00a3' + prizeFor(i) : '&mdash;'}</td>
       ${anyPending ? `<td class="center" style="color:#a882ac;">${row.pending || ''}</td>` : ''}
@@ -907,6 +922,11 @@ function renderTable() {
   });
   html += '</tbody>';
   document.getElementById('leagueTable').innerHTML = html;
+  const liveNow = table.reduce((a, r) => a + r.liveOn, 0);
+  const flag = document.getElementById('liveFlag');
+  if (flag) flag.innerHTML = liveNow
+    ? `<span class="live-flag">\u25CF ${liveNow} game${liveNow === 1 ? '' : 's'} in play \u00b7 +points are provisional</span>`
+    : '';
 }
 
 function escapeHtml(s) {
