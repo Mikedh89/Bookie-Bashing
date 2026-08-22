@@ -552,11 +552,32 @@ async function syncOddsAndResults() {
 
   // Cache odds per event so we only ask once per fixture
   const oddsCache = {};
+  let oddsCalls = 0;
+  const MAX_ODDS_CALLS = 12;
   // The odds endpoint needs a bookmaker; the free tier only allows a couple,
   // so try a few common ones until one answers.
-  const BOOKS = ['bet365', 'williamhill', 'ladbrokes', 'coral', 'betfred',
-                 'skybet', 'paddypower', 'unibet', 'betway', '888sport'];
+  // The two bookmakers selected on the odds-api.io free tier.
+  let BOOKS = ['Bet365,Unibet'];
   let goodBook = null;
+
+  // Ask the API which bookmakers this key can actually use
+  async function discoverBooks() {
+    try {
+      const r = await fetch('https://api.odds-api.io/v3/bookmakers?apiKey='
+                          + encodeURIComponent(ODDS_API_KEY));
+      if (!r.ok) return;
+      const d = await r.json();
+      const list = Array.isArray(d) ? d : (d.bookmakers || d.data || []);
+      const names = list
+        .filter(b => b && (b.active === undefined || b.active))
+        .map(b => b.name || b.slug || b)
+        .filter(n => typeof n === 'string');
+      if (names.length) {
+        BOOKS = names.slice(0, 12);
+        window.__bookDebug = 'books available: ' + names.slice(0, 4).join(',');
+      }
+    } catch (e) { /* fall back to the guessed list */ }
+  }
 
   async function tryOdds(id, book) {
     let url = 'https://api.odds-api.io/v3/odds?eventId=' + encodeURIComponent(id)
@@ -573,12 +594,14 @@ async function syncOddsAndResults() {
 
   async function oddsForEvent(id) {
     if (id in oddsCache) return oddsCache[id];
+    if (oddsCalls >= MAX_ODDS_CALLS) return null;
+    oddsCalls++;
     let lastErr = '';
-    const order = goodBook ? [goodBook] : BOOKS.concat([null]);
+    const order = goodBook ? [goodBook] : BOOKS;
     for (const book of order) {
       try {
         const res = await tryOdds(id, book);
-        if (!res.ok) { lastErr = 'HTTP ' + res.status + ' ' + res.body; continue; }
+        if (!res.ok) { lastErr = (book || 'none') + '=' + res.status + ':' + res.body; continue; }
         goodBook = book;
         const d = res.data;
         if (!window.__oddsDebug) {
@@ -599,7 +622,7 @@ async function syncOddsAndResults() {
         lastErr = e.message || 'fetch error';
       }
     }
-    if (!window.__oddsDebug) window.__oddsDebug = 'all books failed: ' + lastErr;
+    if (!window.__oddsDebug) window.__oddsDebug = (window.__bookDebug ? window.__bookDebug + ' | ' : '') + 'last: ' + lastErr;
     oddsCache[id] = null;
     return null;
   }
@@ -1188,7 +1211,7 @@ document.getElementById('resetBtn').addEventListener('click', () => {
 initFirebase();
 setInterval(() => { if (picks.length) renderAll(); }, 60000);
 setTimeout(syncOddsAndResults, 2500);
-setInterval(syncOddsAndResults, 600000);
+setInterval(syncOddsAndResults, 1800000);
 </script>
 </body>
 </html>
