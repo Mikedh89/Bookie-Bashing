@@ -225,7 +225,8 @@
     <div class="update-note">Picks in before kickoff &middot; table updated about an hour after full time</div>
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 18</div>
+    <div class="sync-status" id="fixStatus"></div>
+    <div class="sync-status" style="color:#7d5983;">build 19</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -274,8 +275,6 @@
 // ============================================================
 const ODDS_API_KEY = "f30bd4593ae1fdaa33b791f047f2a8accfc8e20aec05768ab810e8aab9e6b03b";
 
-// API-Football (api-football.com) - form tables and head-to-head. 100/day.
-const FOOTBALL_API_KEY = "bbe65e16e008bae9682ee8be8924298a";
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyC1b4nZbdAQhHWxpF_P6Pe-XEbf3nrzR8E",
@@ -390,6 +389,13 @@ const CLUBS = [
 let picks = [];
 let dbReady = false;
 let seasonRef = null;
+
+function setFixStatus(text, tone) {
+  const el = document.getElementById('fixStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = tone === 'bad' ? '#ff5c8a' : tone === 'good' ? '#00ff85' : '#a882ac';
+}
 
 function setOdds(text, tone) {
   const el = document.getElementById('oddsStatus');
@@ -1303,113 +1309,49 @@ let openLeagues = null;   // null = Premier League only
 let leagueFixtures = [];  // fixtures fetched per league slug
 let teamForm = {};        // { 'Everton': { pts: 9, played: 5, seq: 'WWLDW' } }
 
-// Form and head-to-head from API-Football. Standings give every team's
-// last-five form in one call per league, so this stays cheap.
-const AF = 'https://v3.football.api-sports.io';
-const AF_LEAGUES = {          // API-Football league ids
-  'Premier League': 39, 'Championship': 40, 'League One': 41,
-  'League Two': 42, 'National League': 43, 'Scottish League One': 183
-};
-let h2hCache = {};
+// Recent form, derived from settled results in the same leagues using the
+// odds API we already have. API-Football's free tier only serves historical
+// seasons, so it can't help with current form.
 let formFetched = 0;
 
-let afDebug = '';
-
-async function afGet(path) {
-  let r;
-  try {
-    r = await fetch(AF + path, { headers: { 'x-apisports-key': FOOTBALL_API_KEY } });
-  } catch (e) {
-    afDebug = 'blocked (CORS?): ' + (e.message || 'network');
-    throw e;
-  }
-  if (!r.ok) {
-    let body = '';
-    try { body = (await r.text()).slice(0, 70); } catch (e2) {}
-    afDebug = 'HTTP ' + r.status + ' ' + body;
-    throw new Error(afDebug);
-  }
-  const d = await r.json();
-  if (d.errors && (Array.isArray(d.errors) ? d.errors.length : Object.keys(d.errors).length)) {
-    afDebug = 'api says: ' + JSON.stringify(d.errors).slice(0, 70);
-    throw new Error(afDebug);
-  }
-  if (!afDebug) afDebug = 'ok results:' + (d.results !== undefined ? d.results : '?');
-  return d.response || [];
-}
-
-async function fetchForm() {
-  if (!FOOTBALL_API_KEY || FOOTBALL_API_KEY.indexOf('PASTE') === 0) return;
-  if (Date.now() - formFetched < 12 * 3600 * 1000) return;   // twice a day at most
+async function fetchForm(slugs) {
+  if (!slugs || !slugs.length) return;
+  if (Date.now() - formFetched < 12 * 3600 * 1000) return;
   formFetched = Date.now();
-  const seasons = [new Date().getFullYear(), new Date().getFullYear() - 1];
   const form = {};
-  let ok = 0;
-
-  for (const name of Object.keys(AF_LEAGUES)) {
+  for (const slug of slugs) {
     try {
-      let res = await afGet('/standings?league=' + AF_LEAGUES[name] + '&season=' + seasons[0]);
-      if (!res.length) res = await afGet('/standings?league=' + AF_LEAGUES[name] + '&season=' + seasons[1]);
-      const table = res[0] && res[0].league && res[0].league.standings;
-      (table || []).forEach(group => group.forEach(row => {
-        if (!row.team || !row.team.name) return;
-        form[row.team.name] = {
-          seq: (row.form || '').slice(-5),
-          rank: row.rank,
-          id: row.team.id,
-          pts: (row.form || '').slice(-5).split('').reduce((a, c) => a + (c === 'W' ? 3 : c === 'D' ? 1 : 0), 0),
-          played: (row.form || '').slice(-5).length
-        };
-      }));
-      ok++;
-    } catch (e) { /* league unavailable on this plan/season */ }
+      const r = await fetch('https://api.odds-api.io/v3/events?league=' + encodeURIComponent(slug)
+                          + '&status=settled&apiKey=' + encodeURIComponent(ODDS_API_KEY));
+      if (r.status === 429) { rateLimitedUntil = Date.now() + 3600000; break; }
+      if (!r.ok) continue;
+      const d = await r.json();
+      const evs = (Array.isArray(d) ? d : (d.events || d.data || [])).filter(isSeniorMens);
+      evs.sort((a, b) => new Date(b.date) - new Date(a.date));
+      evs.forEach(ev => {
+        const sc = scoreOf(ev);
+        if (!sc) return;
+        [[ev.home, sc.h, sc.a], [ev.away, sc.a, sc.h]].forEach(([team, mine, theirs]) => {
+          if (!team) return;
+          const f = form[team] = form[team] || { pts: 0, played: 0, seq: '' };
+          if (f.played >= 5) return;
+          f.played++;
+          if (mine > theirs) { f.pts += 3; f.seq += 'W'; }
+          else if (mine === theirs) { f.seq += 'D'; }
+          else { f.seq += 'L'; }
+        });
+      });
+    } catch (e) { /* skip */ }
   }
-
   if (Object.keys(form).length) {
     teamForm = form;
-    setOdds('Form loaded from ' + ok + ' leagues', 'good');
+    setFixStatus('Form: ' + Object.keys(form).length + ' teams', 'good');
     renderPickPrompt();
-  } else {
-    setOdds('Form: ' + (afDebug || 'no data returned'), 'bad');
   }
 }
 
-// Head-to-head for one fixture, cached. Returns the picked team's win share.
-function h2hFor(teamA, teamB) {
-  const fa = formFor(teamA), fb = formFor(teamB);
-  if (!fa || !fb || !fa.id || !fb.id) return null;
-  const key = [fa.id, fb.id].sort().join('-');
-  const rec = h2hCache[key];
-  if (!rec) return null;
-  const aFirst = fa.id < fb.id;
-  return { mine: aFirst ? rec.a : rec.b, theirs: aFirst ? rec.b : rec.a,
-           d: rec.d, total: rec.total };
-}
-
-async function fetchH2H(teamA, teamB) {
-  const fa = formFor(teamA), fb = formFor(teamB);
-  if (!fa || !fb || !fa.id || !fb.id) return null;
-  const key = [fa.id, fb.id].sort().join('-');
-  if (key in h2hCache) return h2hCache[key];
-  try {
-    const res = await afGet('/fixtures/headtohead?h2h=' + fa.id + '-' + fb.id + '&last=6');
-    let aWins = 0, bWins = 0, draws = 0;
-    res.forEach(m => {
-      const hw = m.teams && m.teams.home && m.teams.home.winner;
-      const aw = m.teams && m.teams.away && m.teams.away.winner;
-      const homeIsA = m.teams && m.teams.home && m.teams.home.id === fa.id;
-      if (hw === null && aw === null) { draws++; return; }
-      if (hw) { homeIsA ? aWins++ : bWins++; }
-      else if (aw) { homeIsA ? bWins++ : aWins++; }
-    });
-    const total = aWins + bWins + draws;
-    const aFirst = fa.id < fb.id;
-    h2hCache[key] = total
-      ? { a: aFirst ? aWins : bWins, b: aFirst ? bWins : aWins, d: draws, total }
-      : null;
-  } catch (e) { h2hCache[key] = null; }
-  return h2hCache[key];
-}
+// head-to-head needs historical fixtures we can't get on a free plan
+function h2hFor() { return null; }
 
 function formFor(team) {
   if (teamForm[team]) return teamForm[team];
@@ -1431,7 +1373,7 @@ async function fetchLeagueFixtures() {
   try {
     const r = await fetch('https://api.odds-api.io/v3/leagues?sport=football&apiKey='
                         + encodeURIComponent(ODDS_API_KEY));
-    if (r.status === 429) { rateLimitedUntil = Date.now() + 3600000; setOdds('Rate limited', 'bad'); return; }
+    if (r.status === 429) { rateLimitedUntil = Date.now() + 3600000; setFixStatus('Rate limited', 'bad'); return; }
     if (!r.ok) { note = 'leagues HTTP ' + r.status; }
     else {
       const d = await r.json();
@@ -1467,10 +1409,11 @@ async function fetchLeagueFixtures() {
   }
   if (out.length) {
     leagueFixtures = out.filter(isSeniorMens);
-    setOdds('Fixtures: ' + leagueFixtures.length + ' from ' + slugs.length + ' leagues', 'good');
+    setFixStatus('Fixtures: ' + leagueFixtures.length + ' from ' + slugs.length + ' leagues', 'good');
+    fetchForm(slugs);
     renderPickPrompt();
   } else {
-    setOdds('No fixtures returned \u00b7 ' + note + ' \u00b7 tried: ' + slugs.slice(0, 2).join(','), 'bad');
+    setFixStatus('Fixtures: ' + note + ' \u00b7 tried ' + slugs.slice(0, 2).join(','), 'bad');
   }
 }
 
@@ -2031,7 +1974,6 @@ function scheduleSync() {
 }
 
 setTimeout(() => { syncOddsAndResults(); scheduleSync(); }, 2500);
-setTimeout(fetchForm, 4000);
 </script>
 </body>
 </html>
