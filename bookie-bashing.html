@@ -81,6 +81,7 @@
   .w { color: #00ff85; } .d { color: #04f5ff; } .l { color: #ff5c8a; }
   .rank { color: #a882ac; font-weight: 700; }
   td.avg-odds { text-align:center; color:#04f5ff; font-weight:700; font-size:13px; }
+  td.prize { text-align:center; color:#e9c46a; font-weight:800; font-size:13px; }
   .badge-img { border-radius: 50%; object-fit: cover; vertical-align: middle; border: 2px solid #55105c; background: #1a0020; }
   tbody tr.leader .badge-img { border-color: #00ff85; }
   .name-cell { display: flex; align-items: center; gap: 7px; }
@@ -144,6 +145,9 @@
   .kitty-label { font-size: 12px; letter-spacing: 1.5px; color: #04f5ff; text-transform: uppercase; font-weight: 700; }
   .kitty-total { font-size: 26px; font-weight: 900; color: #00ff85; }
   .kitty-total small { font-size: 12px; color: #a882ac; font-weight: 400; margin-left: 6px; }
+  .pot-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; font-size:13px; color:#e8d4ea; }
+  .pot-total { font-size:20px; font-weight:900; color:#e9c46a; }
+  .pot-note { font-size:11px; color:#a882ac; padding-bottom:4px; }
   .debt-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 8px 0; border-top: 1px solid #4a0e50; color: #e8d4ea; gap: 10px; }
   .debt-amount { font-weight: 800; color: #e90052; background: rgba(233,0,82,0.14); padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
   .owed-clear { font-size: 13px; color: #00ff85; padding-top: 8px; border-top: 1px solid #4a0e50; }
@@ -281,6 +285,18 @@ const SEED_WEEK_1 = {
 };
 
 const STAKE = 10;
+const PRIZE_STAKE = 5;          // each, each match week, into the season pot
+const PRIZE_SPLIT = [0.8, 0.2]; // 1st, 2nd at the end of match week 42
+
+// Season pot so far: £5 each per logged match week
+function prizePot() {
+  return PRIZE_STAKE * PARTICIPANTS.length * usedWeeks().length;
+}
+
+function prizeFor(position) {
+  const share = PRIZE_SPLIT[position] || 0;
+  return Math.round(prizePot() * share);
+}
 
 // English & Scottish league clubs, 2026-27 season
 const CLUBS = [
@@ -873,7 +889,7 @@ function renderTable() {
   let html = `<thead><tr>
     <th>#</th><th>Punter</th><th class="center">P</th>
     <th class="center w">W</th><th class="center d">D</th><th class="center l">L</th>
-    <th class="center">Pts</th><th class="center">Odds</th>${anyPending ? '<th class="center">Pend</th>' : ''}
+    <th class="center">Pts</th><th class="center">Odds</th><th class="center">Prize</th>${anyPending ? '<th class="center">Pend</th>' : ''}
   </tr></thead><tbody>`;
   table.forEach((row, i) => {
     html += `<tr class="${i===0 && row.points > 0 ? 'leader' : ''}">
@@ -885,6 +901,7 @@ function renderTable() {
       <td class="center l">${row.losses}</td>
       <td class="center pts">${row.points}</td>
       <td class="center avg-odds">${row.avgOdds ? toFractional(row.avgOdds) : '&mdash;'}</td>
+      <td class="center prize">${prizeFor(i) ? '\u00a3' + prizeFor(i) : '&mdash;'}</td>
       ${anyPending ? `<td class="center" style="color:#a882ac;">${row.pending || ''}</td>` : ''}
     </tr>`;
   });
@@ -1296,6 +1313,14 @@ function renderKitty() {
       html += `<div class="owed-clear">Everyone\u2019s paid in for match week ${week}.</div>`;
     }
   }
+
+  const wksIn = usedWeeks().length;
+  html += `<div class="pay-divider">Prize pot</div>
+    <div class="pot-row">
+      <span>\u00a3${PRIZE_STAKE} each \u00b7 ${wksIn} week${wksIn === 1 ? '' : 's'} in</span>
+      <span class="pot-total">\u00a3${prizePot()}</span>
+    </div>
+    <div class="pot-note">Paid out at the end of the season: 80% to 1st, 20% to 2nd</div>`;
 
   html += `<div class="pay-divider">Who owes who</div>`;
   if (debts.length === 0) {
