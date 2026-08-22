@@ -226,7 +226,7 @@
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 24</div>
+    <div class="sync-status" style="color:#7d5983;">build 26</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -428,6 +428,15 @@ function initFirebase() {
     firebase.initializeApp(FIREBASE_CONFIG);
     seasonRef = firebase.database().ref('bookieBashing/weeks');
     boardRef = firebase.database().ref('bookieBashing/oddsBoard');
+    cacheRef = firebase.database().ref('bookieBashing/cache');
+    cacheRef.on('value', (snap) => {
+      const c = snap.val();
+      if (!c) return;
+      if (Array.isArray(c.fixtures) && c.fixtures.length) leagueFixtures = c.fixtures;
+      if (c.form) teamForm = c.form;
+      cacheAt = c.fetchedAt || 0;
+      renderPickPrompt();
+    });
     boardRef.on('value', (snap) => { oddsBoard = snap.val() || {}; renderPickPrompt(); });
     setStatus('Connecting\u2026');
 
@@ -1307,6 +1316,21 @@ function picksWindowOpen() {
 let pickerWho = PARTICIPANTS[0];
 let openLeagues = null;   // null = Premier League only
 let leagueFixtures = [];  // fixtures fetched per league slug
+let cacheRef = null;
+let cacheAt = 0;
+// The cache holds until next Saturday's games have been played. Fixtures
+// don't change once published, so there's no reason to refetch sooner.
+function cacheIsStale() {
+  if (!cacheAt) return true;
+  if (!leagueFixtures.length) return true;
+  const now = Date.now();
+  // stale once the latest cached fixture is in the past
+  const latest = Math.max(...leagueFixtures
+    .map(e => new Date(e.date).getTime()).filter(t => !isNaN(t)));
+  if (!isFinite(latest) || latest < now) return true;
+  // otherwise refresh at most once a day, to pick up late additions
+  return (now - cacheAt) > 24 * 3600 * 1000;
+}
 let teamForm = {};        // { 'Everton': { pts: 9, played: 5, seq: 'WWLDW' } }
 
 // Recent form, derived from settled results in the same leagues using the
@@ -1316,8 +1340,7 @@ let formFetched = 0;
 
 async function fetchForm(slugs) {
   if (!slugs || !slugs.length) return;
-  if (Date.now() - formFetched < 12 * 3600 * 1000) return;
-  formFetched = Date.now();
+  if (teamForm && Object.keys(teamForm).length && !cacheIsStale()) return;
   const form = {};
   for (const slug of slugs) {
     try {
@@ -1346,6 +1369,7 @@ async function fetchForm(slugs) {
   if (Object.keys(form).length) {
     teamForm = form;
     setFixStatus('Form: ' + Object.keys(form).length + ' teams', 'good');
+    saveCache();
     renderPickPrompt();
   }
 }
@@ -1353,20 +1377,33 @@ async function fetchForm(slugs) {
 // head-to-head needs historical fixtures we can't get on a free plan
 function h2hFor() { return null; }
 
+// Keep the shared cache small: only what the picker needs
+function saveCache() {
+  if (!cacheRef) return;
+  const slim = leagueFixtures.slice(0, 400).map(e => ({
+    id: e.id, home: e.home, away: e.away, date: e.date,
+    league: { name: (e.league && (e.league.name || e.league.slug)) || '' }
+  }));
+  cacheRef.set({ fetchedAt: Date.now(), fixtures: slim, form: teamForm }).catch(() => {});
+}
+
 function formFor(team) {
   if (teamForm[team]) return teamForm[team];
   const k = Object.keys(teamForm).find(n => teamsMatch(n, team));
   return k ? teamForm[k] : null;
 }
 let fixturesFetched = 0;
+let fetchingFixtures = false;
 
 // The events endpoint only returns a useful list when given a league slug,
 // so ask for each of our competitions by name.
 async function fetchLeagueFixtures() {
   if (typeof ODDS_API_KEY === 'undefined' || ODDS_API_KEY.indexOf('PASTE') === 0) return;
   if (Date.now() < rateLimitedUntil) return;
-  if (Date.now() - fixturesFetched < 6 * 3600 * 1000) return;   // at most every 6h
-  fixturesFetched = Date.now();
+  if (!cacheIsStale()) return;   // shared cache still good, no API calls
+  if (fetchingFixtures) return;
+  fetchingFixtures = true;
+  cacheAt = Date.now();          // claim it so the other phones don't also fetch
 
   let slugs = [];
   let note = '';
@@ -1413,9 +1450,12 @@ async function fetchLeagueFixtures() {
     leagueFixtures = out.filter(isSeniorMens);
     setFixStatus('Fixtures: ' + leagueFixtures.length + ' \u00b7 ' + perLeague.join(' ')
       + (window.__scotSlugs ? ' \u00b7 SCOT SLUGS: ' + window.__scotSlugs : ' \u00b7 no scottish leagues found'), 'good');
+    saveCache();
     fetchForm(slugs);
     renderPickPrompt();
+    fetchingFixtures = false;
   } else {
+    fetchingFixtures = false;
     setFixStatus('Fixtures 0 \u00b7 ' + note + ' \u00b7 ' + (perLeague.join(' ') || 'no responses'), 'bad');
   }
 }
@@ -1665,6 +1705,10 @@ function renderPickPrompt() {
       </div>`;
       });
     });
+    if (cacheAt) {
+      const ago = Math.round((Date.now() - cacheAt) / 60000);
+      html += `<div class="picker-note">Fixtures cached ${ago < 60 ? ago + ' min' : Math.round(ago / 60) + ' hr'} ago \u00b7 shared with the syndicate</div>`;
+    }
     const b = oddsBoard['week_' + wk];
     const when = b && b.taken ? new Date(b.taken).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : null;
     html += `</div><div class="picker-note">${when
