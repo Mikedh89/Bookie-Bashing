@@ -49,7 +49,7 @@
   }
   .sub { font-size: 13px; color: #c9a8ce; }
   .update-note { font-size: 11px; color: #c9a8ce; margin-top: 8px; font-style: italic; }
-  .sync-status { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: #a882ac; margin-top: 6px; }
+  .sync-status { font-size: 10px; word-break: break-word; letter-spacing: 1px; text-transform: uppercase; color: #a882ac; margin-top: 6px; }
   .season-line { font-size: 11px; color: #04f5ff; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 700; margin-top: 10px; }
   table {
     width: 100%;
@@ -545,6 +545,7 @@ async function syncOddsAndResults() {
     return;
   }
   if (!events.length) { setOdds('Odds feed: 0 events returned', 'bad'); return; }
+  window.__evDebug = 'event keys: ' + Object.keys(events[0] || {}).slice(0, 8).join(',');
 
   let changed = 0, wanted = 0, matched = 0;
   const touched = new Set();
@@ -556,11 +557,26 @@ async function syncOddsAndResults() {
     try {
       const r = await fetch('https://api.odds-api.io/v3/odds?eventId=' + encodeURIComponent(id)
                           + '&apiKey=' + encodeURIComponent(ODDS_API_KEY));
-      if (!r.ok) { oddsCache[id] = null; return null; }
+      if (!r.ok) { window.__oddsDebug = 'odds HTTP ' + r.status; oddsCache[id] = null; return null; }
       const d = await r.json();
-      oddsCache[id] = extractMoneyline(d.bookmakers ? d : { bookmakers: d.bookmakers || d });
+      if (!window.__oddsDebug) {
+        window.__oddsDebug = 'odds keys: ' + Object.keys(d || {}).slice(0, 6).join(',');
+        const bk = d && d.bookmakers;
+        if (bk) {
+          const names = Object.keys(bk).slice(0, 3);
+          window.__oddsDebug += ' | books: ' + names.join(',');
+          if (names.length) {
+            const first = bk[names[0]];
+            window.__oddsDebug += ' | mkts: ' + (Array.isArray(first)
+              ? first.map(m => m.name).slice(0, 4).join('/')
+              : Object.keys(first || {}).slice(0, 4).join('/'));
+          }
+        }
+      }
+      oddsCache[id] = extractMoneyline(d && d.bookmakers ? d : { bookmakers: (d && d.bookmakers) || d });
       return oddsCache[id];
     } catch (e) {
+      window.__oddsDebug = 'odds fetch failed: ' + (e.message || 'error');
       oddsCache[id] = null;
       return null;
     }
@@ -596,8 +612,11 @@ async function syncOddsAndResults() {
   }
 
   const priced = Object.values(oddsCache).filter(Boolean).length;
-  setOdds(`Odds feed: matched ${matched}/${wanted} \u00b7 priced ${priced} \u00b7 ${changed} updated`,
-          changed || matched ? 'good' : 'bad');
+  if (priced === 0) {
+    setOdds('DEBUG \u2014 ' + (window.__evDebug || '') + ' \u2014 ' + (window.__oddsDebug || 'no odds call made'), 'bad');
+  } else {
+    setOdds(`Odds feed: matched ${matched}/${wanted} \u00b7 priced ${priced} \u00b7 ${changed} updated`, 'good');
+  }
   if (changed) {
     touched.forEach(saveWeek);
     renderAll();
