@@ -188,8 +188,12 @@
   .claude-rank { width:16px; color:#7d5983; font-weight:800; font-size:11px; }
   .claude-team { flex:1; color:#fff; font-weight:600; }
   .claude-opp { display:block; font-size:10px; color:#a882ac; font-weight:400; }
+  .claude-form { display:block; font-size:9px; letter-spacing:1px; margin-top:2px; }
+  .claude-form i { font-style:normal; }
+  .f-W { color:#00ff85; } .f-D { color:#04f5ff; } .f-L { color:#ff5c8a; }
   .claude-odds { color:#04f5ff; font-weight:800; font-size:12px; }
-  .claude-prob { color:#e9c46a; font-weight:800; font-size:13px; width:38px; text-align:right; }
+  .claude-h2h { display:block; font-size:9px; color:#a882ac; font-weight:600; white-space:nowrap; }
+  .claude-prob { color:#e9c46a; font-weight:800; font-size:13px; width:56px; text-align:right; }
   .follow { background:#2b002e; border:1px solid #55105c; border-radius:10px; padding:16px 18px; margin-bottom:22px; }
   .follow-head { font-size:12px; letter-spacing:1.5px; color:#04f5ff; text-transform:uppercase; font-weight:700; margin-bottom:12px; }
   .follow-table { width:100%; border-collapse:collapse; background:transparent; border:none; margin:0; box-shadow:none; }
@@ -221,7 +225,7 @@
     <div class="update-note">Picks in before kickoff &middot; table updated about an hour after full time</div>
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 14</div>
+    <div class="sync-status" style="color:#7d5983;">build 17</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -269,6 +273,9 @@
 //  Leave as PASTE_... to keep everything manual.
 // ============================================================
 const ODDS_API_KEY = "f30bd4593ae1fdaa33b791f047f2a8accfc8e20aec05768ab810e8aab9e6b03b";
+
+// API-Football (api-football.com) - form tables and head-to-head. 100/day.
+const FOOTBALL_API_KEY = "bbe65e16e008bae9682ee8be8924298a";
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyC1b4nZbdAQhHWxpF_P6Pe-XEbf3nrzR8E",
@@ -1294,6 +1301,103 @@ function picksWindowOpen() {
 let pickerWho = PARTICIPANTS[0];
 let openLeagues = null;   // null = Premier League only
 let leagueFixtures = [];  // fixtures fetched per league slug
+let teamForm = {};        // { 'Everton': { pts: 9, played: 5, seq: 'WWLDW' } }
+
+// Form and head-to-head from API-Football. Standings give every team's
+// last-five form in one call per league, so this stays cheap.
+const AF = 'https://v3.football.api-sports.io';
+const AF_LEAGUES = {          // API-Football league ids
+  'Premier League': 39, 'Championship': 40, 'League One': 41,
+  'League Two': 42, 'National League': 43, 'Scottish League One': 183
+};
+let h2hCache = {};
+let formFetched = 0;
+
+async function afGet(path) {
+  const r = await fetch(AF + path, { headers: { 'x-apisports-key': FOOTBALL_API_KEY } });
+  if (!r.ok) throw new Error('AF ' + r.status);
+  const d = await r.json();
+  if (d.errors && Object.keys(d.errors).length) throw new Error(JSON.stringify(d.errors).slice(0, 60));
+  return d.response || [];
+}
+
+async function fetchForm() {
+  if (!FOOTBALL_API_KEY || FOOTBALL_API_KEY.indexOf('PASTE') === 0) return;
+  if (Date.now() - formFetched < 12 * 3600 * 1000) return;   // twice a day at most
+  formFetched = Date.now();
+  const season = new Date().getFullYear();
+  const form = {};
+  let ok = 0;
+
+  for (const name of Object.keys(AF_LEAGUES)) {
+    try {
+      const res = await afGet('/standings?league=' + AF_LEAGUES[name] + '&season=' + season);
+      const table = res[0] && res[0].league && res[0].league.standings;
+      (table || []).forEach(group => group.forEach(row => {
+        if (!row.team || !row.team.name) return;
+        form[row.team.name] = {
+          seq: (row.form || '').slice(-5),
+          rank: row.rank,
+          id: row.team.id,
+          pts: (row.form || '').slice(-5).split('').reduce((a, c) => a + (c === 'W' ? 3 : c === 'D' ? 1 : 0), 0),
+          played: (row.form || '').slice(-5).length
+        };
+      }));
+      ok++;
+    } catch (e) { /* league unavailable on this plan/season */ }
+  }
+
+  if (Object.keys(form).length) {
+    teamForm = form;
+    setOdds('Form loaded from ' + ok + ' leagues', 'good');
+    renderPickPrompt();
+  } else {
+    setOdds('Form unavailable \u2014 check API-Football key', 'bad');
+  }
+}
+
+// Head-to-head for one fixture, cached. Returns the picked team's win share.
+function h2hFor(teamA, teamB) {
+  const fa = formFor(teamA), fb = formFor(teamB);
+  if (!fa || !fb || !fa.id || !fb.id) return null;
+  const key = [fa.id, fb.id].sort().join('-');
+  const rec = h2hCache[key];
+  if (!rec) return null;
+  const aFirst = fa.id < fb.id;
+  return { mine: aFirst ? rec.a : rec.b, theirs: aFirst ? rec.b : rec.a,
+           d: rec.d, total: rec.total };
+}
+
+async function fetchH2H(teamA, teamB) {
+  const fa = formFor(teamA), fb = formFor(teamB);
+  if (!fa || !fb || !fa.id || !fb.id) return null;
+  const key = [fa.id, fb.id].sort().join('-');
+  if (key in h2hCache) return h2hCache[key];
+  try {
+    const res = await afGet('/fixtures/headtohead?h2h=' + fa.id + '-' + fb.id + '&last=6');
+    let aWins = 0, bWins = 0, draws = 0;
+    res.forEach(m => {
+      const hw = m.teams && m.teams.home && m.teams.home.winner;
+      const aw = m.teams && m.teams.away && m.teams.away.winner;
+      const homeIsA = m.teams && m.teams.home && m.teams.home.id === fa.id;
+      if (hw === null && aw === null) { draws++; return; }
+      if (hw) { homeIsA ? aWins++ : bWins++; }
+      else if (aw) { homeIsA ? bWins++ : aWins++; }
+    });
+    const total = aWins + bWins + draws;
+    const aFirst = fa.id < fb.id;
+    h2hCache[key] = total
+      ? { a: aFirst ? aWins : bWins, b: aFirst ? bWins : aWins, d: draws, total }
+      : null;
+  } catch (e) { h2hCache[key] = null; }
+  return h2hCache[key];
+}
+
+function formFor(team) {
+  if (teamForm[team]) return teamForm[team];
+  const k = Object.keys(teamForm).find(n => teamsMatch(n, team));
+  return k ? teamForm[k] : null;
+}
 let fixturesFetched = 0;
 
 // The events endpoint only returns a useful list when given a league slug,
@@ -1604,10 +1708,40 @@ function renderPickPrompt() {
       [ev.home, ev.away].forEach(team => {
         const pr = winProbability(wk, ev, team);
         const od = boardOdds(wk, team);
-        if (pr && od) ranked.push({ team, pr, od, opp: team === ev.home ? ev.away : ev.home, home: team === ev.home });
+        if (!pr || !od) return;
+        const opp = team === ev.home ? ev.away : ev.home;
+        const f = formFor(team);
+        const fp = f && f.played ? (f.pts / (f.played * 3)) * 100 : null;
+
+        // head-to-head share of the last six meetings
+        const h = h2hFor(team, opp);
+        const hp = h ? Math.round((h.mine + h.d * 0.5) / h.total * 100) : null;
+
+        // weight what we have; redistribute when something is missing
+        let wSum = 0.6, total = pr * 0.6;
+        if (fp !== null) { total += fp * 0.25; wSum += 0.25; }
+        if (hp !== null) { total += hp * 0.15; wSum += 0.15; }
+        const score = total / wSum;
+
+        ranked.push({ team, pr, od, score, form: f, h2h: h, opp, home: team === ev.home });
       });
     });
-    ranked.sort((a, b) => b.pr - a.pr);
+    ranked.sort((a, b) => b.score - a.score);
+
+    // pull head-to-head for the front-runners we haven't got yet
+    const need = ranked.slice(0, 10).filter(r => {
+      const fa = formFor(r.team), fb = formFor(r.opp);
+      if (!fa || !fb || !fa.id || !fb.id) return false;
+      return !([fa.id, fb.id].sort().join('-') in h2hCache);
+    });
+    if (need.length && !window.__h2hRunning) {
+      window.__h2hRunning = true;
+      (async () => {
+        for (const r of need.slice(0, 6)) await fetchH2H(r.team, r.opp);
+        window.__h2hRunning = false;
+        renderPickPrompt();
+      })();
+    }
     // never both sides of the same match
     const usedFixtures = new Set();
     const top = ranked.filter(r => {
@@ -1620,13 +1754,13 @@ function renderPickPrompt() {
       html = html.replace('</div>', '');   // reopen the picker card
       html += `<div class="claude-pick">
         <div class="claude-head">Claude\u2019s six</div>
-        <div class="claude-sub">Shortest prices on the board \u2014 not advice, just the market</div>`;
+        <div class="claude-sub">Win probability, recent form and head-to-head</div>`;
       top.forEach((r, i) => {
         html += `<div class="claude-row">
           <span class="claude-rank">${i + 1}</span>
           <span class="claude-team">${escapeHtml(r.team)}<span class="claude-opp">${r.home ? 'v' : 'at'} ${escapeHtml(r.opp)}</span></span>
-          <span class="claude-odds">${toFractional(r.od)}</span>
-          <span class="claude-prob">${r.pr}%</span>
+          <span class="claude-odds">${toFractional(r.od)}${r.form && r.form.seq ? `<span class="claude-form">${r.form.seq.split('').map(c => `<i class="f-${c}">${c}</i>`).join('')}</span>` : ''}</span>
+          <span class="claude-prob">${r.pr}%${r.h2h ? `<span class="claude-h2h">H2H ${r.h2h.mine}-${r.h2h.d}-${r.h2h.theirs}</span>` : ''}</span>
         </div>`;
       });
       html += `</div></div>`;
@@ -1879,6 +2013,7 @@ function scheduleSync() {
 }
 
 setTimeout(() => { syncOddsAndResults(); scheduleSync(); }, 2500);
+setTimeout(fetchForm, 4000);
 </script>
 </body>
 </html>
