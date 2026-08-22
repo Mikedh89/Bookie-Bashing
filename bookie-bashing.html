@@ -124,6 +124,7 @@
   .history-label { font-size: 12px; letter-spacing: 1.5px; color: #04f5ff; text-transform: uppercase; margin-bottom: 10px; font-weight: 700; }
   .gw-card { background: #2b002e; border: 1px solid #4a0e50; border-radius: 10px; padding: 14px; margin-bottom: 10px; }
   .gw-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .lock-note { color:#04f5ff; font-weight:400; font-size:11px; }
   .gw-title { font-weight: 800; color: #ffffff; }
   .del-btn { background: none; border: none; color: #a882ac; cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
   .gw-row { display: flex; justify-content: space-between; font-size: 13px; padding: 5px 0; color: #e8d4ea; align-items: center; }
@@ -166,7 +167,7 @@
 
   <div class="panel" id="formPanel" style="display:none;">
     <div style="margin-bottom:16px;">
-      <label>Gameweek</label>
+      <label>Match week</label>
       <select id="gwName" style="width:100%;"></select>
     </div>
     <div style="margin-bottom:16px;">
@@ -220,7 +221,7 @@ const TOTAL_WEEKS = 42;
 const SEED_WEEK_1 = {
   id: 1,
   week: 1,
-  gameweek: 'Week 1',
+  gameweek: 'Match week 1',
   entries: {
     '1Hit Weston': [
       { team: 'Middlesbrough', result: 'win' },
@@ -357,13 +358,20 @@ function usedWeeks() {
   return picks.map(gw => gw.week).filter(w => typeof w === 'number');
 }
 
-// Lowest week number not yet logged
+// Lowest week that isn't complete (fewer than all three punters logged)
 function nextFreeWeek() {
-  const used = usedWeeks();
   for (let w = 1; w <= TOTAL_WEEKS; w++) {
-    if (!used.includes(w)) return w;
+    const gw = picks.find(g => g.week === w);
+    const count = gw && gw.entries ? PARTICIPANTS.filter(p => gw.entries[p]).length : 0;
+    if (count < PARTICIPANTS.length) return w;
   }
   return null;
+}
+
+// How many punters have logged for a given week
+function loggedCount(w) {
+  const gw = picks.find(g => g.week === w);
+  return gw && gw.entries ? PARTICIPANTS.filter(p => gw.entries[p]).length : 0;
 }
 
 function populateWeekSelect() {
@@ -374,7 +382,7 @@ function populateWeekSelect() {
     const gw = picks.find(g => g.week === w);
     const count = gw ? PARTICIPANTS.filter(p => gw.entries && gw.entries[p]).length : 0;
     const tag = count === 3 ? ' \u2014 all in' : count > 0 ? ` \u2014 ${count} of 3 in` : '';
-    html += `<option value="${w}"${w === next ? ' selected' : ''}>Week ${w}${tag}</option>`;
+    html += `<option value="${w}"${w === next ? ' selected' : ''}>Match week ${w}${tag}</option>`;
   }
   sel.innerHTML = html;
 }
@@ -390,6 +398,36 @@ function resultBg(r) {
 }
 function resultLabel(r) {
   return r === 'win' ? 'Win' : r === 'draw' ? 'Draw' : r === 'lose' ? 'Lose' : 'Pending';
+}
+
+// The Saturday 5pm that results unlock for a week created now
+function upcomingSaturday5pm(from) {
+  const d = new Date(from || Date.now());
+  const day = d.getDay();               // 0 Sun ... 6 Sat
+  const past5 = day === 6 && d.getHours() >= 17;
+  let add = (6 - day + 7) % 7;          // days until Saturday
+  if (day === 6 && !past5) add = 0;     // today, still before 5pm
+  if (past5) add = 7;                   // already gone, so next Saturday
+  const t = new Date(d.getFullYear(), d.getMonth(), d.getDate() + add, 17, 0, 0, 0);
+  return t.getTime();
+}
+
+// Results stay locked until that moment. Weeks with no stored lock are open.
+function resultsLocked(gw) {
+  if (!gw || !gw.lockUntil) return false;
+  return Date.now() < gw.lockUntil;
+}
+
+function lockMessage(gw) {
+  const ms = gw.lockUntil - Date.now();
+  if (ms <= 0) return '';
+  const hrs = Math.floor(ms / 3600000);
+  if (hrs >= 24) {
+    const days = Math.round(hrs / 24);
+    return `results unlock in ${days} day${days > 1 ? 's' : ''}`;
+  }
+  if (hrs >= 1) return `results unlock in ${hrs} hour${hrs > 1 ? 's' : ''}`;
+  return `results unlock in under an hour`;
 }
 
 // Ensure any gameweek (including older saved ones) has a payments block
@@ -514,7 +552,7 @@ function renderMyPickInputs() {
 
   let html = `<div class="person-block" data-person="${escapeHtml(person)}">`;
   if (existing) {
-    html += `<div class="already-note">You\u2019ve already logged Week ${week}: ${existing.map(e => escapeHtml(e.team)).join(' &amp; ')}. Saving again will replace it.</div>`;
+    html += `<div class="already-note">You\u2019ve already logged match week ${week}: ${existing.map(e => escapeHtml(e.team)).join(' &amp; ')}. Saving again will replace it.</div>`;
   }
   [0,1].forEach(idx => {
     const val = existing && existing[idx] ? escapeHtml(existing[idx].team) : '';
@@ -611,12 +649,13 @@ function renderHistory() {
     return;
   }
   resetBtn.style.display = 'inline-flex';
-  let html = '<div class="history-label">Gameweek History</div>';
+  let html = '<div class="history-label">Match Week History</div>';
   [...picks].reverse().forEach(gw => {
     const hasPending = PARTICIPANTS.some(p => (gw.entries[p]||[]).some(pk => pk.result === 'pending'));
+    const locked = resultsLocked(gw);
     html += `<div class="gw-card">
       <div class="gw-head">
-        <div class="gw-title">${escapeHtml(gw.gameweek)}${hasPending ? ' <span style="color:#a882ac; font-weight:400; font-size:11px;">&middot; awaiting results</span>' : ''}</div>
+        <div class="gw-title">Match week ${gw.week}${locked ? ` <span class="lock-note">&middot; \u{1F512} ${lockMessage(gw)}</span>` : hasPending ? ' <span style="color:#a882ac; font-weight:400; font-size:11px;">&middot; awaiting results</span>' : ''}</div>
         <button class="del-btn" data-id="${gw.id}">Delete</button>
       </div>`;
     PARTICIPANTS.forEach(p => {
@@ -628,7 +667,7 @@ function renderHistory() {
       entries.forEach((pick, pIdx) => {
         html += `<span class="badge" style="background:${resultBg(pick.result)};color:${resultColor(pick.result)}; display:inline-flex; align-items:center; gap:4px;">
           ${escapeHtml(pick.team)}
-          <select class="inline-result-select" data-gwid="${gw.id}" data-person="${escapeHtml(p)}" data-pickidx="${pIdx}" style="background:transparent; color:inherit; border:none; font-weight:600; font-size:12px; font-family:inherit;">
+          <select class="inline-result-select" ${locked ? 'disabled' : ''} data-gwid="${gw.id}" data-person="${escapeHtml(p)}" data-pickidx="${pIdx}" style="background:transparent; color:inherit; border:none; font-weight:600; font-size:12px; font-family:inherit; ${locked ? 'opacity:.55;' : ''}">
             <option value="pending" ${pick.result==='pending'?'selected':''}>Pending</option>
             <option value="win" ${pick.result==='win'?'selected':''}>Win (3)</option>
             <option value="draw" ${pick.result==='draw'?'selected':''}>Draw (1)</option>
@@ -676,6 +715,7 @@ function renderHistory() {
       const person = sel.getAttribute('data-person');
       const pickIdx = Number(sel.getAttribute('data-pickidx'));
       const gw = picks.find(g => g.id === gwId);
+      if (gw && resultsLocked(gw)) { renderAll(); return; }
       if (gw && gw.entries[person] && gw.entries[person][pickIdx]) {
         gw.entries[person][pickIdx].result = sel.value;
         save(picks);
@@ -739,7 +779,7 @@ function renderKitty() {
 
   let html = `<div class="kitty">
     <div class="kitty-head">
-      <span class="kitty-label">Week ${week} Kitty</span>
+      <span class="kitty-label">Match week ${week} kitty</span>
       <span class="kitty-total">\u00a3${banked}<small>of \u00a3${banked + outstanding}</small></span>
     </div>`;
 
@@ -749,9 +789,9 @@ function renderKitty() {
     const pay = paymentsFor(gwNow);
     const owing = PARTICIPANTS.filter(p => pay[p].status === 'unpaid');
     if (owing.length) {
-      html += `<div class="arrears">Still to pay this week: ${owing.map(escapeHtml).join(', ')}</div>`;
+      html += `<div class="arrears">Still to pay: ${owing.map(escapeHtml).join(', ')}</div>`;
     } else {
-      html += `<div class="owed-clear">Everyone\u2019s paid in for week ${week}.</div>`;
+      html += `<div class="owed-clear">Everyone\u2019s paid in for match week ${week}.</div>`;
     }
   }
 
@@ -771,13 +811,17 @@ function renderKitty() {
   section.innerHTML = html;
 }
 function renderSeasonLine() {
-  const logged = usedWeeks().length;
   const next = nextFreeWeek();
   const el = document.getElementById('seasonLine');
   if (!el) return;
-  el.textContent = next
-    ? `Week ${next} of ${TOTAL_WEEKS} up next \u00b7 ${logged} logged`
-    : `Season complete \u00b7 all ${TOTAL_WEEKS} weeks logged`;
+  if (!next) {
+    el.textContent = `Season complete \u00b7 all ${TOTAL_WEEKS} match weeks played`;
+    return;
+  }
+  const inThisWeek = loggedCount(next);
+  el.textContent = inThisWeek === 0
+    ? `Match week ${next} of ${TOTAL_WEEKS} \u00b7 no picks in yet`
+    : `Match week ${next} of ${TOTAL_WEEKS} \u00b7 ${inThisWeek} of ${PARTICIPANTS.length} in`;
 }
 
 document.getElementById('showFormBtn').addEventListener('click', () => {
@@ -801,7 +845,7 @@ document.getElementById('saveGwBtn').addEventListener('click', () => {
   errorEl.style.display = 'none';
 
   if (!week || !person) {
-    errorEl.textContent = "Pick a gameweek and choose who you are.";
+    errorEl.textContent = "Pick a match week and choose who you are.";
     errorEl.style.display = 'block';
     return;
   }
@@ -822,7 +866,7 @@ document.getElementById('saveGwBtn').addEventListener('click', () => {
 
   let gw = picks.find(g => g.week === week);
   if (!gw) {
-    gw = { id: Date.now(), week, gameweek: `Week ${week}`, entries: {}, payments: {} };
+    gw = { id: Date.now(), week, gameweek: `Match week ${week}`, entries: {}, payments: {}, lockUntil: upcomingSaturday5pm() };
     picks.push(gw);
     picks.sort((a, b) => (a.week || 0) - (b.week || 0));
   }
@@ -836,7 +880,7 @@ document.getElementById('saveGwBtn').addEventListener('click', () => {
   renderAll();
 });
 document.getElementById('resetBtn').addEventListener('click', () => {
-  if (confirm('Wipe every week back to Week 1? This cannot be undone.')) {
+  if (confirm('Wipe every match week back to week 1? This cannot be undone.')) {
     picks = [SEED_WEEK_1];
     save(picks);
     renderAll();
@@ -844,6 +888,7 @@ document.getElementById('resetBtn').addEventListener('click', () => {
 });
 
 initFirebase();
+setInterval(() => { if (picks.length) renderAll(); }, 60000);
 </script>
 </body>
 </html>
