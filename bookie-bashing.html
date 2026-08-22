@@ -173,6 +173,8 @@
   .fixture { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
   .side { flex:1; padding:9px 8px; background:#1a0020; border:1px solid #55105c; border-radius:6px; color:#e8d4ea; font-size:12px; font-family:inherit; cursor:pointer; text-align:center; line-height:1.2; }
   .side.sel { background:#00ff85; color:#1a0020; border-color:#00ff85; font-weight:800; }
+  .side-odds { display:block; font-size:11px; font-weight:800; color:#04f5ff; margin-top:2px; }
+  .side.sel .side-odds { color:#1a0020; }
   .vs { font-size:10px; color:#7d5983; white-space:nowrap; }
   .picker-note { font-size:11px; color:#a882ac; margin-top:10px; font-style:italic; }
   .follow { background:#2b002e; border:1px solid #55105c; border-radius:10px; padding:16px 18px; margin-bottom:22px; }
@@ -398,6 +400,8 @@ function initFirebase() {
   try {
     firebase.initializeApp(FIREBASE_CONFIG);
     seasonRef = firebase.database().ref('bookieBashing/weeks');
+    boardRef = firebase.database().ref('bookieBashing/oddsBoard');
+    boardRef.on('value', (snap) => { oddsBoard = snap.val() || {}; renderPickPrompt(); });
     setStatus('Connecting\u2026');
 
     // Live listener: fires on first load and whenever anyone changes anything
@@ -1268,11 +1272,64 @@ function kickoffOf(ev) {
 function picksWindowOpen() {
   const d = new Date();
   const day = d.getDay(), hr = d.getHours(), mins = d.getHours() * 60 + d.getMinutes();
-  if (day === 6) return mins >= 17 * 60 + 30;   // Sat from 17:30
+  if (day === 6) return mins >= 17 * 60 + 15;   // Sat from 17:15
   return true;                                   // Sun-Fri
 }
 
 let pickerWho = PARTICIPANTS[0];
+let oddsBoard = {};        // { week_3: { taken: 1690..., odds: { 'Arsenal': 1.8, ... } } }
+let boardRef = null;
+let buildingBoard = false;
+
+// One-time price snapshot, like the odds in a newspaper. Taken once per
+// match week, stored in Firebase, read by everyone.
+async function buildOddsBoard(week, fixtures) {
+  if (buildingBoard) return;
+  if (oddsBoard['week_' + week]) return;          // already taken
+  if (typeof ODDS_API_KEY === 'undefined' || ODDS_API_KEY.indexOf('PASTE') === 0) return;
+  if (Date.now() < rateLimitedUntil) return;
+  buildingBoard = true;
+  setOdds('Taking odds snapshot for match week ' + week + '\u2026');
+
+  const odds = {};
+  let calls = 0;
+  for (const ev of fixtures) {
+    if (calls >= 45) break;                       // stay inside the hourly cap
+    if (!ev.id) continue;
+    calls++;
+    try {
+      const r = await fetch('https://api.odds-api.io/v3/odds?eventId=' + encodeURIComponent(ev.id)
+                          + '&bookmakers=Bet365,Unibet&apiKey=' + encodeURIComponent(ODDS_API_KEY));
+      if (r.status === 429) { rateLimitedUntil = Date.now() + 3600000; break; }
+      if (!r.ok) continue;
+      const d = await r.json();
+      const ml = extractMoneyline(d && d.bookmakers ? d : { bookmakers: (d && d.bookmakers) || d });
+      if (ml) {
+        if (ml.home > 1) odds[ev.home] = ml.home;
+        if (ml.away > 1) odds[ev.away] = ml.away;
+      }
+    } catch (e) { /* skip this fixture */ }
+  }
+
+  buildingBoard = false;
+  if (Object.keys(odds).length && boardRef) {
+    const snap = { taken: Date.now(), odds: odds };
+    oddsBoard['week_' + week] = snap;
+    boardRef.child('week_' + week).set(snap).catch(() => {});
+    setOdds('Odds snapshot taken \u00b7 ' + Object.keys(odds).length + ' prices', 'good');
+    renderPickPrompt();
+  } else {
+    setOdds('Could not take odds snapshot \u2014 pick without prices', 'bad');
+  }
+}
+
+function boardOdds(week, team) {
+  const b = oddsBoard['week_' + week];
+  if (!b || !b.odds) return null;
+  if (b.odds[team]) return b.odds[team];
+  const key = Object.keys(b.odds).find(k => teamsMatch(k, team));
+  return key ? b.odds[key] : null;
+}
 
 // Next Saturday's 3pm kickoffs only. Reads the fixture list the sync
 // already fetched - no extra API calls.
@@ -1311,7 +1368,12 @@ function togglePick(week, person, team) {
   const list = gw.entries[person] ? gw.entries[person].slice() : [];
   const at = list.findIndex(x => x.team === team);
   if (at >= 0) list.splice(at, 1);
-  else if (list.length < 2) list.push({ team: team, result: 'pending' });
+  else if (list.length < 2) {
+    const entry = { team: team, result: 'pending' };
+    const price = boardOdds(week, team);
+    if (price) entry.odds = price;                // frozen at the snapshot price
+    list.push(entry);
+  }
   else { setOdds('Two picks each \u2014 tap one to swap it out', 'bad'); return; }
   gw.entries[person] = list;
   paymentsFor(gw);
@@ -1353,13 +1415,19 @@ function renderPickPrompt() {
       if (day !== lastDay) { html += `<div class="picker-day">${day}</div>`; lastDay = day; }
       const hSel = mine.some(m => m.team === ev.home);
       const aSel = mine.some(m => m.team === ev.away);
+      const hO = boardOdds(wk, ev.home), aO = boardOdds(wk, ev.away);
       html += `<div class="fixture">
-        <button class="side ${hSel ? 'sel' : ''}" data-team="${escapeHtml(ev.home)}">${escapeHtml(ev.home)}</button>
+        <button class="side ${hSel ? 'sel' : ''}" data-team="${escapeHtml(ev.home)}">${escapeHtml(ev.home)}${hO ? `<span class="side-odds">${toFractional(hO)}</span>` : ''}</button>
         <span class="vs">v</span>
-        <button class="side ${aSel ? 'sel' : ''}" data-team="${escapeHtml(ev.away)}">${escapeHtml(ev.away)}</button>
+        <button class="side ${aSel ? 'sel' : ''}" data-team="${escapeHtml(ev.away)}">${escapeHtml(ev.away)}${aO ? `<span class="side-odds">${toFractional(aO)}</span>` : ''}</button>
       </div>`;
     });
-    html += `</div><div class="picker-note">Tap a team to back them. Odds fill in automatically once picked.</div>`;
+    const b = oddsBoard['week_' + wk];
+    const when = b && b.taken ? new Date(b.taken).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : null;
+    html += `</div><div class="picker-note">${when
+      ? 'Prices as at ' + when + ' \u2014 fixed, they won\u2019t move.'
+      : 'Tap a team to back them. Prices load shortly.'}</div>`;
+    if (!b) buildOddsBoard(wk, fixtures.slice(0, 45));
   }
 
   html += `</div>`;
