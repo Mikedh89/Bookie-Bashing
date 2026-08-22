@@ -221,7 +221,7 @@
     <div class="update-note">Picks in before kickoff &middot; table updated about an hour after full time</div>
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 12</div>
+    <div class="sync-status" style="color:#7d5983;">build 13</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1293,6 +1293,53 @@ function picksWindowOpen() {
 
 let pickerWho = PARTICIPANTS[0];
 let openLeagues = null;   // null = Premier League only
+let leagueFixtures = [];  // fixtures fetched per league slug
+let fixturesFetched = 0;
+
+// The events endpoint only returns a useful list when given a league slug,
+// so ask for each of our competitions by name.
+async function fetchLeagueFixtures() {
+  if (typeof ODDS_API_KEY === 'undefined' || ODDS_API_KEY.indexOf('PASTE') === 0) return;
+  if (Date.now() < rateLimitedUntil) return;
+  if (Date.now() - fixturesFetched < 6 * 3600 * 1000) return;   // at most every 6h
+  fixturesFetched = Date.now();
+
+  let slugs = [];
+  try {
+    const r = await fetch('https://api.odds-api.io/v3/leagues?sport=football&apiKey='
+                        + encodeURIComponent(ODDS_API_KEY));
+    if (r.status === 429) { rateLimitedUntil = Date.now() + 3600000; return; }
+    if (r.ok) {
+      const d = await r.json();
+      const list = Array.isArray(d) ? d : (d.leagues || d.data || []);
+      slugs = list.filter(l => wantedLeague(l.name || l.slug || ''))
+                  .map(l => l.slug || l.id).filter(Boolean).slice(0, 8);
+    }
+  } catch (e) { /* fall through */ }
+
+  if (!slugs.length) {
+    slugs = ['england-premier-league', 'england-championship', 'england-league-one',
+             'england-league-two', 'england-national-league', 'scotland-league-one'];
+  }
+
+  const out = [];
+  for (const slug of slugs) {
+    try {
+      const r = await fetch('https://api.odds-api.io/v3/events?league=' + encodeURIComponent(slug)
+                          + '&apiKey=' + encodeURIComponent(ODDS_API_KEY));
+      if (r.status === 429) { rateLimitedUntil = Date.now() + 3600000; break; }
+      if (!r.ok) continue;
+      const d = await r.json();
+      const evs = Array.isArray(d) ? d : (d.events || d.data || []);
+      evs.forEach(e => out.push(e));
+    } catch (e) { /* skip this league */ }
+  }
+  if (out.length) {
+    leagueFixtures = out.filter(isSeniorMens);
+    setOdds('Fixtures loaded: ' + leagueFixtures.length + ' games', 'good');
+    renderPickPrompt();
+  }
+}
 
 const LEAGUE_ORDER = ['premier league', 'championship', 'league one', 'league two',
                       'national league', 'premiership', 'scottish'];
@@ -1403,8 +1450,8 @@ function boardOdds(week, team) {
 function upcomingFixtures() {
   const now = Date.now();
   const horizon = now + 8 * 24 * 3600 * 1000;
-  const all = [];
-  return liveEvents.filter(e => {
+  const source = leagueFixtures.length ? leagueFixtures : liveEvents;
+  return source.filter(e => {
     if (!e.date) return false;
     const d = new Date(e.date);
     const t = d.getTime();
@@ -1459,6 +1506,7 @@ function renderPickPrompt() {
 
   const mine = myPicksFor(wk, pickerWho);
   const fixtures = upcomingFixtures();
+  if (!fixtures.length) fetchLeagueFixtures();
 
   let html = `<div class="picker">
     <div class="picker-head">\u26BD Get your picks in for match week ${wk}</div>
