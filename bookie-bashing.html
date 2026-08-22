@@ -226,7 +226,7 @@
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 23</div>
+    <div class="sync-status" style="color:#7d5983;">build 24</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1680,7 +1680,6 @@ function renderPickPrompt() {
     }
   }
 
-  html += `</div>`;
   // Claude's pick: the six shortest-priced teams on the board
   const board = oddsBoard['week_' + wk];
   if (board && board.odds) {
@@ -1732,7 +1731,6 @@ function renderPickPrompt() {
       return true;
     }).slice(0, 6);
     if (top.length) {
-      html = html.replace('</div>', '');   // reopen the picker card
       html += `<div class="claude-pick">
         <div class="claude-head">Claude\u2019s six</div>
         <div class="claude-sub">Win probability, recent form and head-to-head</div>`;
@@ -1744,10 +1742,11 @@ function renderPickPrompt() {
           <span class="claude-prob">${r.pr}%${r.h2h ? `<span class="claude-h2h">H2H ${r.h2h.mine}-${r.h2h.d}-${r.h2h.theirs}</span>` : ''}</span>
         </div>`;
       });
-      html += `</div></div>`;
+      html += `</div>`;
     }
   }
 
+  html += `</div>`;   // close the picker card
   el.innerHTML = html;
 
   const sel = document.getElementById('pickerWho');
