@@ -226,7 +226,7 @@
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 21</div>
+    <div class="sync-status" style="color:#7d5983;">build 22</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1321,7 +1321,7 @@ async function fetchForm(slugs) {
   const form = {};
   for (const slug of slugs) {
     try {
-      const r = await fetch('https://api.odds-api.io/v3/events?league=' + encodeURIComponent(slug)
+      const r = await fetch('https://api.odds-api.io/v3/events?sport=football&league=' + encodeURIComponent(slug)
                           + '&status=settled&apiKey=' + encodeURIComponent(ODDS_API_KEY));
       if (r.status === 429) { rateLimitedUntil = Date.now() + 3600000; break; }
       if (!r.ok) continue;
@@ -1393,24 +1393,27 @@ async function fetchLeagueFixtures() {
   if (!slugs.length) slugs = WANTED_SLUGS.slice();
 
   const out = [];
+  const perLeague = [];
   for (const slug of slugs) {
     try {
-      const r = await fetch('https://api.odds-api.io/v3/events?league=' + encodeURIComponent(slug)
+      const r = await fetch('https://api.odds-api.io/v3/events?sport=football&league='
+                          + encodeURIComponent(slug) + '&status=pending'
                           + '&apiKey=' + encodeURIComponent(ODDS_API_KEY));
       if (r.status === 429) { rateLimitedUntil = Date.now() + 3600000; break; }
-      if (!r.ok) continue;
+      if (!r.ok) { perLeague.push(slug.split('-').pop() + ':' + r.status); continue; }
       const d = await r.json();
-      const evs = Array.isArray(d) ? d : (d.events || d.data || []);
+      const evs = Array.isArray(d) ? d : (d.events || d.data || d.results || []);
+      perLeague.push(slug.replace('england-', 'e-').replace('scotland-', 's-') + ':' + evs.length);
       evs.forEach(e => out.push(e));
     } catch (e) { /* skip this league */ }
   }
   if (out.length) {
     leagueFixtures = out.filter(isSeniorMens);
-    setFixStatus('Fixtures: ' + leagueFixtures.length + ' from ' + slugs.length + ' leagues', 'good');
+    setFixStatus('Fixtures: ' + leagueFixtures.length + ' \u00b7 ' + perLeague.join(' '), 'good');
     fetchForm(slugs);
     renderPickPrompt();
   } else {
-    setFixStatus('Fixtures: ' + note + ' \u00b7 tried ' + slugs.slice(0, 2).join(','), 'bad');
+    setFixStatus('Fixtures 0 \u00b7 ' + note + ' \u00b7 ' + (perLeague.join(' ') || 'no responses'), 'bad');
   }
 }
 
