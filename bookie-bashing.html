@@ -514,7 +514,14 @@ function normaliseTeam(n) {
 function teamsMatch(a, b) {
   const x = normaliseTeam(a), y = normaliseTeam(b);
   if (!x || !y) return false;
-  return x === y || x.startsWith(y) || y.startsWith(x);
+  if (x === y) return true;
+  // allow a short suffix only (e.g. 'wolves' vs 'wolverhampton'), never
+  // enough room for a u21/reserves marker
+  const longer = x.length > y.length ? x : y;
+  const shorter = x.length > y.length ? y : x;
+  if (!longer.startsWith(shorter)) return false;
+  const extra = longer.slice(shorter.length);
+  return extra.length <= 2 && !/\d/.test(extra);
 }
 
 // Pull the 1X2 home/away price out of whatever shape the bookmaker block is
@@ -581,6 +588,7 @@ async function syncOddsAndResults() {
     return;
   }
   if (!events.length) { setOdds('Odds feed: 0 events returned', 'bad'); return; }
+  events = events.filter(isSeniorMens);
   liveEvents = events;
   renderFollow();
   window.__evDebug = 'event keys: ' + Object.keys(events[0] || {}).slice(0, 8).join(',');
@@ -675,7 +683,7 @@ async function syncOddsAndResults() {
       const list = (gw.entries && gw.entries[person]) || [];
       for (const pick of list) {
         wanted++;
-        const ev = events.find(e => teamsMatch(pick.team, e.home) || teamsMatch(pick.team, e.away));
+        const ev = findEvent(events, pick.team);
         if (!ev) continue;
         matched++;
 
@@ -1154,6 +1162,25 @@ function renderAll() {
 
 
 
+
+// Youth, reserve and women's fixtures are separate competitions - never
+// what someone means when they back a club.
+function isSeniorMens(ev) {
+  const blob = [ev && ev.home, ev && ev.away,
+                ev && ev.league && (ev.league.name || ev.league.slug) || '']
+                .join(' ').toLowerCase();
+  return !/\b(u\s?1[5-9]|u\s?2[0-3]|under[- ]?\d+|youth|academy|reserves?|women|ladies|femin|w\.?f\.?c)\b/.test(blob)
+      && !/\bii\b/.test(blob);
+}
+
+// Prefer an exact name match before falling back to a looser one
+function findEvent(list, team) {
+  const t = normaliseTeam(team);
+  let hit = list.find(e => normaliseTeam(e.home) === t || normaliseTeam(e.away) === t);
+  if (hit) return hit;
+  return list.find(e => teamsMatch(team, e.home) || teamsMatch(team, e.away));
+}
+
 // Best-effort score read - the free tier may not expose these
 function scoreOf(ev) {
   const sc = ev && (ev.score || ev.scores || ev.result);
@@ -1207,7 +1234,7 @@ function renderFollow() {
   let anyScore = false;
   teams.forEach(team => {
     const q = encodeURIComponent(team + ' score');
-    const ev = liveEvents.find(e => teamsMatch(team, e.home) || teamsMatch(team, e.away));
+    const ev = findEvent(liveEvents, team);
     const sc = ev ? scoreOf(ev) : null;
     const atHome = ev ? teamsMatch(team, ev.home) : true;
     const opp = ev ? (atHome ? ev.away : ev.home) : '';
