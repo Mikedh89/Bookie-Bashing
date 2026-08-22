@@ -226,7 +226,7 @@
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 22</div>
+    <div class="sync-status" style="color:#7d5983;">build 23</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1380,6 +1380,8 @@ async function fetchLeagueFixtures() {
       const list = Array.isArray(d) ? d : (d.leagues || d.data || []);
       note = 'leagues:' + list.length;
       slugs = list.filter(wantedLeagueObj).map(l => l.slug || l.id).filter(Boolean);
+      const scots = list.map(l => l.slug || '').filter(sl => sl.indexOf('scot') === 0).slice(0, 8);
+      if (scots.length) window.__scotSlugs = scots.join(' ');
       if (!slugs.length) slugs = WANTED_SLUGS.slice();
       note += ' matched:' + slugs.length;
       if (!slugs.length && list.length) {
@@ -1409,7 +1411,8 @@ async function fetchLeagueFixtures() {
   }
   if (out.length) {
     leagueFixtures = out.filter(isSeniorMens);
-    setFixStatus('Fixtures: ' + leagueFixtures.length + ' \u00b7 ' + perLeague.join(' '), 'good');
+    setFixStatus('Fixtures: ' + leagueFixtures.length + ' \u00b7 ' + perLeague.join(' ')
+      + (window.__scotSlugs ? ' \u00b7 SCOT SLUGS: ' + window.__scotSlugs : ' \u00b7 no scottish leagues found'), 'good');
     fetchForm(slugs);
     renderPickPrompt();
   } else {
@@ -1667,7 +1670,14 @@ function renderPickPrompt() {
     html += `</div><div class="picker-note">${when
       ? 'Prices as at ' + when + ' \u2014 fixed, they won\u2019t move.'
       : 'Tap a team to back them. Prices load shortly.'}</div>`;
-    if (!b) buildOddsBoard(wk, fixtures.slice(0, 45));
+    if (!b && !buildingBoard) {
+      if (Date.now() < rateLimitedUntil) {
+        setOdds('Prices: rate limited, retry in '
+          + Math.ceil((rateLimitedUntil - Date.now()) / 60000) + ' min', 'bad');
+      } else {
+        buildOddsBoard(wk, fixtures.slice(0, 45));
+      }
+    }
   }
 
   html += `</div>`;
