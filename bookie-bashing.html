@@ -548,22 +548,39 @@ async function syncOddsAndResults() {
 
   let changed = 0, wanted = 0, matched = 0;
   const touched = new Set();
+
+  // Cache odds per event so we only ask once per fixture
+  const oddsCache = {};
+  async function oddsForEvent(id) {
+    if (id in oddsCache) return oddsCache[id];
+    try {
+      const r = await fetch('https://api.odds-api.io/v3/odds?eventId=' + encodeURIComponent(id)
+                          + '&apiKey=' + encodeURIComponent(ODDS_API_KEY));
+      if (!r.ok) { oddsCache[id] = null; return null; }
+      const d = await r.json();
+      oddsCache[id] = extractMoneyline(d.bookmakers ? d : { bookmakers: d.bookmakers || d });
+      return oddsCache[id];
+    } catch (e) {
+      oddsCache[id] = null;
+      return null;
+    }
+  }
   // only bother with the last couple of match weeks
   const recent = [...picks].sort((a, b) => (b.week || 0) - (a.week || 0)).slice(0, 3);
 
-  recent.forEach(gw => {
+  for (const gw of recent) {
     const unlocked = !resultsLocked(gw);
-    PARTICIPANTS.forEach(person => {
+    for (const person of PARTICIPANTS) {
       const list = (gw.entries && gw.entries[person]) || [];
-      list.forEach(pick => {
+      for (const pick of list) {
         wanted++;
         const ev = events.find(e => teamsMatch(pick.team, e.home) || teamsMatch(pick.team, e.away));
-        if (!ev) return;
+        if (!ev) continue;
         matched++;
 
-        // odds: only if not already set
-        if (!pick.odds) {
-          const ml = extractMoneyline(ev);
+        // odds: fetched per fixture, only if not already set
+        if (!pick.odds && ev.id) {
+          const ml = extractMoneyline(ev) || await oddsForEvent(ev.id);
           if (ml) {
             const price = teamsMatch(pick.team, ev.home) ? ml.home : ml.away;
             if (price && price > 1) { pick.odds = price; changed++; touched.add(gw); }
@@ -574,12 +591,13 @@ async function syncOddsAndResults() {
           const out = outcomeFor(ev, pick.team);
           if (out) { pick.result = out; changed++; touched.add(gw); }
         }
-      });
-    });
-  });
+      }
+    }
+  }
 
-  setOdds(`Odds feed: ${events.length} events \u00b7 matched ${matched}/${wanted} picks \u00b7 ${changed} updated`,
-          matched ? 'good' : 'bad');
+  const priced = Object.values(oddsCache).filter(Boolean).length;
+  setOdds(`Odds feed: matched ${matched}/${wanted} \u00b7 priced ${priced} \u00b7 ${changed} updated`,
+          changed || matched ? 'good' : 'bad');
   if (changed) {
     touched.forEach(saveWeek);
     renderAll();
