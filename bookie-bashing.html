@@ -169,10 +169,14 @@
   .picker-mine { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
   .picker-chip { background:#00ff85; color:#1a0020; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:800; cursor:pointer; }
   .picker-list { max-height:330px; overflow-y:auto; border-top:1px solid #4a0e50; padding-top:8px; }
+  .lg-head { display:flex; align-items:center; gap:6px; font-size:11px; letter-spacing:0.5px; text-transform:uppercase; color:#04f5ff; font-weight:700; margin:12px 0 6px; cursor:pointer; user-select:none; }
+  .lg-count { margin-left:auto; color:#7d5983; font-weight:400; text-transform:none; letter-spacing:0; }
   .picker-day { font-size:10px; letter-spacing:1px; text-transform:uppercase; color:#04f5ff; font-weight:700; margin:10px 0 4px; }
   .fixture { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
   .side { flex:1; padding:9px 8px; background:#1a0020; border:1px solid #55105c; border-radius:6px; color:#e8d4ea; font-size:12px; font-family:inherit; cursor:pointer; text-align:center; line-height:1.2; }
   .side.sel { background:#00ff85; color:#1a0020; border-color:#00ff85; font-weight:800; }
+  .side-prob { color:#a882ac; font-weight:600; }
+  .side.sel .side-prob { color:#1a4030; }
   .side-odds { display:block; font-size:11px; font-weight:800; color:#04f5ff; margin-top:2px; }
   .side.sel .side-odds { color:#1a0020; }
   .vs { font-size:10px; color:#7d5983; white-space:nowrap; }
@@ -573,7 +577,8 @@ function extractMoneyline(ev) {
       if (nm === 'ml' || nm.includes('money') || nm.includes('1x2') || nm.includes('match')) {
         const o = (m.odds && m.odds[0]) || {};
         const home = parseFloat(o.home), away = parseFloat(o.away);
-        if (!isNaN(home) || !isNaN(away)) return { home, away };
+        const draw = parseFloat(o.draw !== undefined ? o.draw : o.x);
+        if (!isNaN(home) || !isNaN(away)) return { home, away, draw };
       }
     }
   }
@@ -1277,6 +1282,22 @@ function picksWindowOpen() {
 }
 
 let pickerWho = PARTICIPANTS[0];
+let openLeagues = null;   // null = Premier League only
+
+const LEAGUE_ORDER = ['premier league', 'championship', 'league one', 'league two',
+                      'national league', 'premiership', 'scottish'];
+
+function leagueName(ev) {
+  return (ev.league && (ev.league.name || ev.league.slug)) || 'Other';
+}
+
+function leagueRank(name) {
+  const n = name.toLowerCase();
+  for (let i = 0; i < LEAGUE_ORDER.length; i++) {
+    if (n.includes(LEAGUE_ORDER[i])) return i;
+  }
+  return LEAGUE_ORDER.length;
+}
 let oddsBoard = {};        // { week_3: { taken: 1690..., odds: { 'Arsenal': 1.8, ... } } }
 let boardRef = null;
 let buildingBoard = false;
@@ -1307,6 +1328,7 @@ async function buildOddsBoard(week, fixtures) {
       if (ml) {
         if (ml.home > 1) odds[ev.home] = ml.home;
         if (ml.away > 1) odds[ev.away] = ml.away;
+        if (ml.draw > 1) odds['DRAW::' + ev.id] = ml.draw;   // for probability maths
       }
     } catch (e) { /* skip this fixture */ }
   }
@@ -1321,6 +1343,20 @@ async function buildOddsBoard(week, fixtures) {
   } else {
     setOdds('Could not take odds snapshot \u2014 pick without prices', 'bad');
   }
+}
+
+// Implied chance of winning, with the bookmaker's margin stripped out.
+// Uses home/draw/away where the draw price is available.
+function winProbability(week, ev, team) {
+  const b = oddsBoard['week_' + week];
+  if (!b || !b.odds) return null;
+  const h = boardOdds(week, ev.home), a = boardOdds(week, ev.away);
+  const d = b.odds['DRAW::' + ev.id];
+  const mine = teamsMatch(team, ev.home) ? h : a;
+  if (!mine || mine <= 1) return null;
+  let total = (h > 1 ? 1 / h : 0) + (a > 1 ? 1 / a : 0) + (d > 1 ? 1 / d : 0);
+  if (!total) return null;
+  return Math.round((1 / mine) / total * 100);
 }
 
 function boardOdds(week, team) {
@@ -1407,20 +1443,36 @@ function renderPickPrompt() {
   if (!fixtures.length) {
     html += `<div class="picker-note">No fixtures loaded yet \u2014 they appear once the feed refreshes. You can still use Log my picks.</div>`;
   } else {
-    let lastDay = '';
+    // group by competition, Premier League first
+    const groups = {};
+    fixtures.slice(0, 80).forEach(ev => {
+      const lg = leagueName(ev);
+      (groups[lg] = groups[lg] || []).push(ev);
+    });
+    const names = Object.keys(groups).sort((a, b) => leagueRank(a) - leagueRank(b) || a.localeCompare(b));
+    const isOpen = (lg) => openLeagues === null ? leagueRank(lg) === 0 : openLeagues.has(lg);
+
     html += `<div class="picker-list">`;
-    fixtures.slice(0, 60).forEach(ev => {
-      const d = new Date(ev.date);
-      const day = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-      if (day !== lastDay) { html += `<div class="picker-day">${day}</div>`; lastDay = day; }
+    names.forEach(lg => {
+      const open = isOpen(lg);
+      const chosenHere = groups[lg].filter(ev =>
+        mine.some(m => m.team === ev.home || m.team === ev.away)).length;
+      html += `<div class="lg-head" data-league="${escapeHtml(lg)}">
+        <span class="chev">${open ? '\u25BE' : '\u25B8'}</span> ${escapeHtml(lg)}
+        <span class="lg-count">${groups[lg].length}${chosenHere ? ' \u00b7 ' + chosenHere + ' picked' : ''}</span>
+      </div>`;
+      if (!open) return;
+      groups[lg].forEach(ev => {
       const hSel = mine.some(m => m.team === ev.home);
       const aSel = mine.some(m => m.team === ev.away);
       const hO = boardOdds(wk, ev.home), aO = boardOdds(wk, ev.away);
+      const hP = winProbability(wk, ev, ev.home), aP = winProbability(wk, ev, ev.away);
       html += `<div class="fixture">
-        <button class="side ${hSel ? 'sel' : ''}" data-team="${escapeHtml(ev.home)}">${escapeHtml(ev.home)}${hO ? `<span class="side-odds">${toFractional(hO)}</span>` : ''}</button>
+        <button class="side ${hSel ? 'sel' : ''}" data-team="${escapeHtml(ev.home)}">${escapeHtml(ev.home)}${hO ? `<span class="side-odds">${toFractional(hO)}${hP ? ` <span class="side-prob">${hP}%</span>` : ''}</span>` : ''}</button>
         <span class="vs">v</span>
-        <button class="side ${aSel ? 'sel' : ''}" data-team="${escapeHtml(ev.away)}">${escapeHtml(ev.away)}${aO ? `<span class="side-odds">${toFractional(aO)}</span>` : ''}</button>
+        <button class="side ${aSel ? 'sel' : ''}" data-team="${escapeHtml(ev.away)}">${escapeHtml(ev.away)}${aO ? `<span class="side-odds">${toFractional(aO)}${aP ? ` <span class="side-prob">${aP}%</span>` : ''}</span>` : ''}</button>
       </div>`;
+      });
     });
     const b = oddsBoard['week_' + wk];
     const when = b && b.taken ? new Date(b.taken).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : null;
@@ -1435,6 +1487,18 @@ function renderPickPrompt() {
 
   const sel = document.getElementById('pickerWho');
   if (sel) sel.addEventListener('change', () => { pickerWho = sel.value; renderPickPrompt(); });
+  el.querySelectorAll('.lg-head').forEach(h => {
+    h.addEventListener('click', () => {
+      const lg = h.getAttribute('data-league');
+      if (openLeagues === null) {
+        openLeagues = new Set(Object.keys({}).concat(
+          [...el.querySelectorAll('.lg-head')].map(x => x.getAttribute('data-league'))
+        ).filter(n => leagueRank(n) === 0));
+      }
+      if (openLeagues.has(lg)) openLeagues.delete(lg); else openLeagues.add(lg);
+      renderPickPrompt();
+    });
+  });
   el.querySelectorAll('.side, .picker-chip').forEach(btn => {
     btn.addEventListener('click', () => togglePick(wk, pickerWho, btn.getAttribute('data-team')));
   });
