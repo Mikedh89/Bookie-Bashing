@@ -221,7 +221,7 @@
     <div class="update-note">Picks in before kickoff &middot; table updated about an hour after full time</div>
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 13</div>
+    <div class="sync-status" style="color:#7d5983;">build 14</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1305,17 +1305,26 @@ async function fetchLeagueFixtures() {
   fixturesFetched = Date.now();
 
   let slugs = [];
+  let note = '';
   try {
     const r = await fetch('https://api.odds-api.io/v3/leagues?sport=football&apiKey='
                         + encodeURIComponent(ODDS_API_KEY));
-    if (r.status === 429) { rateLimitedUntil = Date.now() + 3600000; return; }
-    if (r.ok) {
+    if (r.status === 429) { rateLimitedUntil = Date.now() + 3600000; setOdds('Rate limited', 'bad'); return; }
+    if (!r.ok) { note = 'leagues HTTP ' + r.status; }
+    else {
       const d = await r.json();
       const list = Array.isArray(d) ? d : (d.leagues || d.data || []);
+      note = 'leagues:' + list.length;
       slugs = list.filter(l => wantedLeague(l.name || l.slug || ''))
                   .map(l => l.slug || l.id).filter(Boolean).slice(0, 8);
+      note += ' matched:' + slugs.length;
+      if (!slugs.length && list.length) {
+        const eng = list.filter(l => /eng/i.test((l.name || '') + (l.slug || '')))
+                        .map(l => l.slug || l.name).slice(0, 3);
+        note += ' eng-like:' + (eng.join(',') || 'none');
+      }
     }
-  } catch (e) { /* fall through */ }
+  } catch (e) { note = 'leagues failed'; }
 
   if (!slugs.length) {
     slugs = ['england-premier-league', 'england-championship', 'england-league-one',
@@ -1336,8 +1345,10 @@ async function fetchLeagueFixtures() {
   }
   if (out.length) {
     leagueFixtures = out.filter(isSeniorMens);
-    setOdds('Fixtures loaded: ' + leagueFixtures.length + ' games', 'good');
+    setOdds('Fixtures: ' + leagueFixtures.length + ' from ' + slugs.length + ' leagues', 'good');
     renderPickPrompt();
+  } else {
+    setOdds('No fixtures returned \u00b7 ' + note + ' \u00b7 tried: ' + slugs.slice(0, 2).join(','), 'bad');
   }
 }
 
