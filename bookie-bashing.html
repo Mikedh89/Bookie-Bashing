@@ -80,6 +80,9 @@
   td.pts { font-weight: 900; font-size: 19px; color: #00ff85; }
   .w { color: #00ff85; } .d { color: #04f5ff; } .l { color: #ff5c8a; }
   .rank { color: #a882ac; font-weight: 700; }
+  .medal { font-size: 17px; line-height: 1; }
+  .medal.silver { filter: grayscale(0.15); }
+  .spoon-svg { width: 21px; height: 21px; vertical-align: middle; }
   td.avg-odds { text-align:center; color:#04f5ff; font-weight:700; font-size:13px; }
   .live-pts { font-size:11px; font-weight:800; color:#04f5ff; margin-left:2px; vertical-align:super; }
   .live-flag { font-size:10px; color:#04f5ff; letter-spacing:1px; text-transform:uppercase; font-weight:700; margin-top:6px; }
@@ -230,7 +233,7 @@
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 29</div>
+    <div class="sync-status" style="color:#7d5983;">build 34</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -975,6 +978,24 @@ function computeTable() {
     || a.losses - b.losses);                              // fewest defeats
 }
 
+const WOODEN_SPOON = '<svg class="spoon-svg" viewBox="0 0 32 32" aria-label="wooden spoon">'
+  + '<g transform="rotate(34 16 16)">'
+  + '<rect x="14.4" y="13" width="3.2" height="17" rx="1.6" fill="#8a5a24"/>'
+  + '<rect x="15.1" y="13" width="1.1" height="17" rx="0.55" fill="#a97136"/>'
+  + '<ellipse cx="16" cy="9" rx="6.2" ry="8" fill="#a9702f"/>'
+  + '<ellipse cx="16" cy="9.2" rx="4.4" ry="6" fill="#c58a40"/>'
+  + '<ellipse cx="16" cy="9.6" rx="2.9" ry="4.2" fill="#96601f"/>'
+  + '</g></svg>';
+
+// Gold for the leader, silver for second, wooden spoon for last
+function rankBadge(i, row, total) {
+  const anyPoints = row.points > 0 || row.livePts > 0;
+  if (i === 0 && anyPoints) return '<span class="medal">\u{1F3C6}</span>';
+  if (i === 1 && total > 2) return '<span class="medal silver">\u{1F948}</span>';
+  if (i === total - 1 && total > 2) return WOODEN_SPOON;
+  return i + 1;
+}
+
 function renderTable() {
   const table = computeTable();
   const anyPending = table.some(r => r.pending > 0);
@@ -985,7 +1006,7 @@ function renderTable() {
   </tr></thead><tbody>`;
   table.forEach((row, i) => {
     html += `<tr class="${i===0 && row.points > 0 ? 'leader' : ''}">
-      <td class="rank">${i===0 && row.points > 0 ? '&#127942;' : i+1}</td>
+      <td class="rank">${rankBadge(i, row, table.length)}</td>
       <td class="name"><span class="name-cell">${badgeImg(row.name, 28)}<span>${escapeHtml(row.name)}</span></span></td>
       <td class="center">${row.played}</td>
       <td class="center w">${row.wins}</td>
@@ -1529,7 +1550,7 @@ let buildingBoard = false;
 async function buildOddsBoard(week, fixtures) {
   if (buildingBoard) return;
   const existing = oddsBoard['week_' + week];
-  if (existing && Date.now() - (existing.taken || 0) < 12 * 3600 * 1000) return;   // refreshed twice a day
+  if (existing && !oddsDue(existing.taken)) return;   // once a day, from 2pm
   if (typeof ODDS_API_KEY === 'undefined' || ODDS_API_KEY.indexOf('PASTE') === 0) return;
   if (Date.now() < rateLimitedUntil) return;
   buildingBoard = true;
@@ -1605,6 +1626,19 @@ function repriceOpenPicks(week, odds) {
   });
 
   if (changed) { saveWeek(gw); renderAll(); }
+}
+
+// Refresh once a day, at or after 2pm - close to the 3pm kickoff prices.
+function oddsDue(takenAt) {
+  if (!takenAt) return true;
+  const now = new Date();
+  const taken = new Date(takenAt);
+
+  // the most recent 2pm that has passed
+  const cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 0, 0, 0);
+  if (now < cutoff) cutoff.setDate(cutoff.getDate() - 1);
+
+  return taken < cutoff;   // due if the snapshot predates that 2pm
 }
 
 function boardOdds(week, team) {
@@ -1753,7 +1787,7 @@ function renderPickPrompt() {
     const b = oddsBoard['week_' + wk];
     const when = b && b.taken ? new Date(b.taken).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : null;
     html += `</div><div class="picker-note">${when
-      ? 'Prices as at ' + when + ' \u00b7 refreshed twice a day until kickoff.'
+      ? 'Prices as at ' + when + ' \u00b7 refreshed daily from 2pm until kickoff.'
       : 'Tap a team to back them. Prices load shortly.'}</div>`;
     if (!b && !buildingBoard) {
       if (Date.now() < rateLimitedUntil) {
