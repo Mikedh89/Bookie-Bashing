@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bookie Bashing</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    background: #38003c;
+    background-image: radial-gradient(circle at 15% 0%, #4b0f52 0%, #38003c 45%), radial-gradient(circle at 100% 100%, #2b002e 0%, #38003c 55%);
+    color: #ffffff;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; padding: 28px 18px 60px; }
+  .header {
+    text-align: center;
+    margin-bottom: 28px;
+    padding-bottom: 22px;
+    position: relative;
+  }
+  .header::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 50%;
+    transform: translateX(-50%);
+    width: 64px; height: 5px;
+    background: linear-gradient(90deg, #00ff85, #04f5ff, #e90052);
+    border-radius: 3px;
+  }
+  .eyebrow {
+    font-size: 12px;
+    letter-spacing: 3px;
+    color: #04f5ff;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  h1 {
+    font-size: 42px;
+    margin: 2px 0 6px;
+    font-weight: 900;
+    letter-spacing: -1px;
+    font-style: italic;
+    color: #ffffff;
+    text-transform: uppercase;
+    line-height: 1;
+  }
+  .sub { font-size: 13px; color: #c9a8ce; }
+  .sync-status { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: #a882ac; margin-top: 6px; }
+  .season-line { font-size: 11px; color: #04f5ff; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 700; margin-top: 10px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #2b002e;
+    border: 1px solid #55105c;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+  }
+  thead tr { background: #1a0020; }
+  th {
+    padding: 12px 10px;
+    text-align: left;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    color: #04f5ff;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  th.center, td.center { text-align: center; }
+  tbody tr { border-bottom: 1px solid #4a0e50; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr.leader { background: linear-gradient(90deg, rgba(0,255,133,0.14), rgba(0,255,133,0.03)); box-shadow: inset 3px 0 0 #00ff85; }
+  td { padding: 13px 10px; }
+  td.name { font-weight: 700; font-size: 16px; color: #ffffff; }
+  td.pts { font-weight: 900; font-size: 19px; color: #00ff85; }
+  .w { color: #00ff85; } .d { color: #04f5ff; } .l { color: #ff5c8a; }
+  .rank { color: #a882ac; font-weight: 700; }
+
+  .panel { background: #2b002e; border: 1px solid #55105c; border-radius: 10px; padding: 20px; margin-bottom: 22px; }
+  label { font-size: 11px; color: #04f5ff; letter-spacing: 1.5px; text-transform: uppercase; display: block; margin-bottom: 6px; font-weight: 700; }
+  input[type=text] {
+    width: 100%; padding: 10px 12px; background: #1a0020; border: 1px solid #55105c;
+    border-radius: 6px; color: #ffffff; font-size: 15px; font-family: inherit;
+  }
+  input[type=text]:focus { outline: none; border-color: #04f5ff; }
+  .person-block { margin-bottom: 18px; padding-top: 14px; border-top: 1px solid #4a0e50; }
+  .person-name { font-weight: 800; color: #ffffff; margin-bottom: 10px; font-size: 15px; }
+  .pick-row { display: flex; gap: 8px; margin-bottom: 8px; position: relative; }
+  .team-search-wrap { flex: 1; position: relative; }
+  .pick-row input { width: 100%; padding: 9px 10px; background: #1a0020; border: 1px solid #55105c; border-radius: 6px; color: #ffffff; font-size: 14px; font-family: inherit; }
+  .pick-row input:focus { outline: none; border-color: #04f5ff; }
+  select {
+    padding: 9px 10px; border: 1px solid #55105c; border-radius: 6px; font-size: 14px; font-weight: 700; font-family: inherit; background: #1a0020; color: #fff;
+  }
+  .autocomplete-list {
+    position: absolute; top: 100%; left: 0; right: 0; z-index: 20;
+    background: #1a0020; border: 1px solid #55105c; border-top: none;
+    border-radius: 0 0 6px 6px; max-height: 220px; overflow-y: auto; display: none;
+  }
+  .autocomplete-list.open { display: block; }
+  .autocomplete-item { padding: 9px 12px; font-size: 13px; color: #e8d4ea; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+  .autocomplete-item:hover, .autocomplete-item.active { background: #38003c; }
+  .autocomplete-item .league-tag { color: #04f5ff; font-size: 10px; white-space: nowrap; font-weight: 700; text-transform: uppercase; }
+  .btn {
+    padding: 12px; border: none; border-radius: 8px; font-weight: 800; cursor: pointer; font-size: 15px; font-family: inherit; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .btn-gold { background: #00ff85; color: #1a0020; }
+  .btn-ghost { background: transparent; color: #c9a8ce; border: 1px solid #55105c; }
+  .btn-row { display: flex; gap: 10px; }
+  .add-btn {
+    width: 100%; padding: 15px; background: #00ff85; color: #1a0020; border: none; border-radius: 10px;
+    font-size: 15px; font-weight: 800; cursor: pointer; margin-bottom: 22px; font-family: inherit;
+    text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 4px 14px rgba(0,255,133,0.25);
+  }
+  .history-label { font-size: 12px; letter-spacing: 1.5px; color: #04f5ff; text-transform: uppercase; margin-bottom: 10px; font-weight: 700; }
+  .gw-card { background: #2b002e; border: 1px solid #4a0e50; border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+  .gw-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .gw-title { font-weight: 800; color: #ffffff; }
+  .del-btn { background: none; border: none; color: #a882ac; cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
+  .gw-row { display: flex; justify-content: space-between; font-size: 13px; padding: 5px 0; color: #e8d4ea; align-items: center; }
+  .badge { padding: 3px 9px; border-radius: 20px; font-weight: 700; margin-left: 6px; }
+  .error { color: #ff5c8a; font-size: 13px; margin-bottom: 12px; }
+  .kitty { background: #2b002e; border: 1px solid #55105c; border-radius: 10px; padding: 16px 18px; margin-bottom: 22px; }
+  .kitty-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
+  .kitty-label { font-size: 12px; letter-spacing: 1.5px; color: #04f5ff; text-transform: uppercase; font-weight: 700; }
+  .kitty-total { font-size: 26px; font-weight: 900; color: #00ff85; }
+  .kitty-total small { font-size: 12px; color: #a882ac; font-weight: 400; margin-left: 6px; }
+  .debt-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 8px 0; border-top: 1px solid #4a0e50; color: #e8d4ea; gap: 10px; }
+  .debt-amount { font-weight: 800; color: #e90052; background: rgba(233,0,82,0.14); padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
+  .owed-clear { font-size: 13px; color: #00ff85; padding-top: 8px; border-top: 1px solid #4a0e50; }
+  .arrears { font-size: 12px; color: #ff5c8a; padding: 7px 0; border-top: 1px solid #4a0e50; }
+  .pay-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; padding: 5px 0; color: #c9a8ce; }
+  .pay-controls { display: flex; gap: 6px; align-items: center; }
+  .pay-controls select { padding: 5px 8px; font-size: 12px; border-radius: 6px; }
+  .settled-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #a882ac; cursor: pointer; text-transform: none; letter-spacing: 0; font-weight: 400; margin: 0; }
+  .settled-toggle input { accent-color: #00ff85; margin: 0; }
+  .pay-divider { margin: 12px 0 4px; font-size: 10px; letter-spacing: 1.5px; color: #7d5983; text-transform: uppercase; font-weight: 700; border-top: 1px solid #4a0e50; padding-top: 10px; }
+  .reset-link { margin-top: 18px; background: none; border: none; color: #7d5983; font-size: 12px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="eyebrow">The Syndicate Presents</div>
+    <h1>Bookie Bashing</h1>
+    <div class="sub">3pts a win &middot; 1pt a draw &middot; 0pts a loss &middot; log picks before kickoff, results added after</div>
+    <div class="season-line" id="seasonLine"></div>
+    <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
+  </div>
+
+  <table id="leagueTable"></table>
+
+  <div id="kittySection"></div>
+
+  <button class="add-btn" id="showFormBtn">+ Log this weekend's picks</button>
+
+  <div class="panel" id="formPanel" style="display:none;">
+    <div style="margin-bottom:16px;">
+      <label>Gameweek</label>
+      <select id="gwName" style="width:100%;"></select>
+    </div>
+    <div id="personBlocks"></div>
+    <div class="error" id="formError" style="display:none;"></div>
+    <div class="btn-row">
+      <button class="btn btn-gold" style="flex:1;" id="saveGwBtn">Save gameweek</button>
+      <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
+    </div>
+  </div>
+
+  <div id="historySection"></div>
+
+  <button class="reset-link" id="resetBtn" style="display:none;">&#8635; Reset whole season</button>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+// ============================================================
+//  PASTE YOUR FIREBASE CONFIG BETWEEN THE BRACES BELOW
+//  (Firebase console > Project settings > Your apps > Web app)
+// ============================================================
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyC1b4nZbdAQhHWxpF_P6Pe-XEbf3nrzR8E",
+  authDomain: "league-table-dcb62.firebaseapp.com",
+  databaseURL: "https://league-table-dcb62-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "league-table-dcb62",
+  storageBucket: "league-table-dcb62.firebasestorage.app",
+  messagingSenderId: "336160174130",
+  appId: "1:336160174130:web:06e8b40cfed495a2a80c2b"
+};
+</script>
+<script>
+const PARTICIPANTS = ['1Hit Weston', 'Mike the shovel Higgins', 'Michael J Owen'];
+const TOTAL_WEEKS = 42;
+
+// Week 1 was played before this tracker existed. Only the points totals were
+// recorded (6 / 3 / 4). With two picks each, those totals decompose one way only.
+const SEED_WEEK_1 = {
+  id: 1,
+  week: 1,
+  gameweek: 'Week 1',
+  entries: {
+    '1Hit Weston': [
+      { team: 'Middlesbrough', result: 'win' },
+      { team: 'Cambridge United', result: 'win' }
+    ],
+    'Mike the shovel Higgins': [
+      { team: 'Bradford City', result: 'win' },
+      { team: 'Barnsley', result: 'lose' }
+    ],
+    'Michael J Owen': [
+      { team: 'Bradford City', result: 'win' },
+      { team: 'Sheffield United', result: 'draw' }
+    ]
+  },
+  payments: {
+    '1Hit Weston': { status: 'covered', by: 'Mike the shovel Higgins', settled: true },
+    'Mike the shovel Higgins': { status: 'paid', by: null },
+    'Michael J Owen': { status: 'paid', by: null }
+  }
+};
+
+const STAKE = 10;
+
+// English & Scottish league clubs, 2026-27 season
+const CLUBS = [
+  // Premier League
+  ['Arsenal','PL'],['Aston Villa','PL'],['Bournemouth','PL'],['Brentford','PL'],['Brighton & Hove Albion','PL'],
+  ['Chelsea','PL'],['Coventry City','PL'],['Crystal Palace','PL'],['Everton','PL'],['Fulham','PL'],
+  ['Hull City','PL'],['Ipswich Town','PL'],['Leeds United','PL'],['Liverpool','PL'],['Manchester City','PL'],
+  ['Manchester United','PL'],['Newcastle United','PL'],['Nottingham Forest','PL'],['Sunderland','PL'],
+  ['Tottenham Hotspur','PL'],
+  // Championship
+  ['Birmingham City','Champ'],['Blackburn Rovers','Champ'],['Bolton Wanderers','Champ'],['Bristol City','Champ'],
+  ['Burnley','Champ'],['Cardiff City','Champ'],['Charlton Athletic','Champ'],['Derby County','Champ'],
+  ['Middlesbrough','Champ'],['Millwall','Champ'],['Norwich City','Champ'],['Lincoln City','Champ'],
+  ['Portsmouth','Champ'],['Preston North End','Champ'],['Queens Park Rangers','Champ'],['Sheffield United','Champ'],
+  ['Southampton','Champ'],['Stoke City','Champ'],['Swansea City','Champ'],['Watford','Champ'],
+  ['West Bromwich Albion','Champ'],['West Ham United','Champ'],['Wolverhampton Wanderers','Champ'],['Wrexham','Champ'],
+  // League One
+  ['AFC Wimbledon','L1'],['Barnsley','L1'],['Blackpool','L1'],['Bradford City','L1'],['Bristol Rovers','L1'],
+  ['Bromley','L1'],['Burton Albion','L1'],['Cambridge United','L1'],['Doncaster Rovers','L1'],['Exeter City','L1'],
+  ['Huddersfield Town','L1'],['Leyton Orient','L1'],['Luton Town','L1'],['Mansfield Town','L1'],
+  ['Northampton Town','L1'],['Peterborough United','L1'],['Plymouth Argyle','L1'],['Reading','L1'],
+  ['Rotherham United','L1'],['Stevenage','L1'],['Stockport County','L1'],['Wigan Athletic','L1'],
+  ['Wycombe Wanderers','L1'],['Port Vale','L1'],
+  // League Two
+  ['Accrington Stanley','L2'],['Barrow','L2'],['Carlisle United','L2'],['Cheltenham Town','L2'],
+  ['Chesterfield','L2'],['Colchester United','L2'],['Crawley Town','L2'],['Crewe Alexandra','L2'],
+  ['Fleetwood Town','L2'],['Gillingham','L2'],['Grimsby Town','L2'],['Harrogate Town','L2'],
+  ['Milton Keynes Dons','L2'],['Newport County','L2'],['Notts County','L2'],['Oldham Athletic','L2'],
+  ['Salford City','L2'],['Shrewsbury Town','L2'],['Swindon Town','L2'],['Tranmere Rovers','L2'],
+  ['Walsall','L2'],['Cheshunt','L2'],['Rochdale','L2'],['York City','L2'],
+  // National League
+  ['Aldershot Town','NL'],['Altrincham','NL'],['Barnet','NL'],['Boston United','NL'],['Braintree Town','NL'],
+  ['Brackley Town','NL'],['Eastleigh','NL'],['FC Halifax Town','NL'],['Forest Green Rovers','NL'],
+  ['Hartlepool United','NL'],['Kidderminster Harriers','NL'],['Maidenhead United','NL'],['Oxford City','NL'],
+  ['Rushall Olympic','NL'],['Scunthorpe United','NL'],['Solihull Moors','NL'],['Southend United','NL'],
+  ['Sutton United','NL'],['Wealdstone','NL'],['Woking','NL'],['Yeovil Town','NL'],
+  // Scottish Premiership
+  ['Aberdeen','SPFL'],['Celtic','SPFL'],['Dundee','SPFL'],['Dundee United','SPFL'],['Falkirk','SPFL'],
+  ['Heart of Midlothian','SPFL'],['Hibernian','SPFL'],['Kilmarnock','SPFL'],['Motherwell','SPFL'],
+  ['Rangers','SPFL'],['St Johnstone','SPFL'],['St Mirren','SPFL'],
+  // Scottish Championship
+  ['Airdrieonians','SPFL2'],['Ayr United','SPFL2'],['Dunfermline Athletic','SPFL2'],['Greenock Morton','SPFL2'],
+  ['Hamilton Academical','SPFL2'],['Livingston','SPFL2'],['Partick Thistle','SPFL2'],['Queen\'s Park','SPFL2'],
+  ['Raith Rovers','SPFL2'],['Arbroath','SPFL2']
+];
+
+// ---- Storage: Firebase Realtime Database ----
+// Data lives in one shared node so all three phones see the same league.
+let picks = [];
+let dbReady = false;
+let seasonRef = null;
+
+function setStatus(text, tone) {
+  const el = document.getElementById('syncStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = tone === 'bad' ? '#ff5c8a' : tone === 'good' ? '#00ff85' : '#a882ac';
+}
+
+function initFirebase() {
+  if (typeof FIREBASE_CONFIG === 'undefined' || !FIREBASE_CONFIG.databaseURL || FIREBASE_CONFIG.databaseURL.indexOf('PASTE') === 0) {
+    setStatus('Not connected \u2014 add your Firebase config to share this league', 'bad');
+    picks = [SEED_WEEK_1];
+    renderAll();
+    return;
+  }
+  if (typeof firebase === 'undefined') {
+    setStatus('Firebase SDK blocked here \u2014 host on GitHub Pages or Netlify to sync', 'bad');
+    picks = [SEED_WEEK_1];
+    renderAll();
+    return;
+  }
+  try {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    seasonRef = firebase.database().ref('bookieBashing/season');
+    setStatus('Connecting\u2026');
+
+    // Live listener: fires on first load and whenever anyone changes anything
+    seasonRef.on('value', (snap) => {
+      const val = snap.val();
+      if (!val || !Array.isArray(val) || val.length === 0) {
+        // Empty database - lay down week 1
+        picks = [SEED_WEEK_1];
+        seasonRef.set(picks);
+      } else {
+        picks = val;
+      }
+      dbReady = true;
+      setStatus('Live \u2014 shared with the syndicate', 'good');
+      renderAll();
+    }, (err) => {
+      setStatus('Connection problem \u2014 changes may not save', 'bad');
+      if (!picks.length) { picks = [SEED_WEEK_1]; renderAll(); }
+    });
+  } catch (e) {
+    setStatus('Could not connect to Firebase', 'bad');
+    picks = [SEED_WEEK_1];
+    renderAll();
+  }
+}
+
+function save(data) {
+  if (!seasonRef || !dbReady) {
+    setStatus('Not saved \u2014 no connection', 'bad');
+    return;
+  }
+  seasonRef.set(data).catch(() => setStatus('Save failed \u2014 try again', 'bad'));
+}
+
+// Weeks already logged
+function usedWeeks() {
+  return picks.map(gw => gw.week).filter(w => typeof w === 'number');
+}
+
+// Lowest week number not yet logged
+function nextFreeWeek() {
+  const used = usedWeeks();
+  for (let w = 1; w <= TOTAL_WEEKS; w++) {
+    if (!used.includes(w)) return w;
+  }
+  return null;
+}
+
+function populateWeekSelect() {
+  const sel = document.getElementById('gwName');
+  const used = usedWeeks();
+  const next = nextFreeWeek();
+  let html = '';
+  for (let w = 1; w <= TOTAL_WEEKS; w++) {
+    const taken = used.includes(w);
+    html += `<option value="${w}"${taken ? ' disabled' : ''}${w === next ? ' selected' : ''}>Week ${w}${taken ? ' \u2014 already logged' : ''}</option>`;
+  }
+  sel.innerHTML = html;
+}
+
+function pointsFor(result) {
+  return result === 'win' ? 3 : result === 'draw' ? 1 : 0;
+}
+function resultColor(r) {
+  return r === 'win' ? '#003d1f' : r === 'draw' ? '#003b40' : r === 'lose' ? '#5c0018' : '#e8d4ea';
+}
+function resultBg(r) {
+  return r === 'win' ? '#00ff85' : r === 'draw' ? '#04f5ff' : r === 'lose' ? '#ff5c8a' : '#4a0e50';
+}
+function resultLabel(r) {
+  return r === 'win' ? 'Win' : r === 'draw' ? 'Draw' : r === 'lose' ? 'Lose' : 'Pending';
+}
+
+// Ensure any gameweek (including older saved ones) has a payments block
+function paymentsFor(gw) {
+  if (!gw.payments) gw.payments = {};
+  PARTICIPANTS.forEach(p => {
+    if (!gw.payments[p]) gw.payments[p] = { status: 'unpaid', by: null };
+  });
+  return gw.payments;
+}
+
+// Total actually in the kitty, and how much is still missing
+function kittyTotals() {
+  let banked = 0, outstanding = 0;
+  picks.forEach(gw => {
+    const pay = paymentsFor(gw);
+    PARTICIPANTS.forEach(p => {
+      if (pay[p].status === 'paid' || pay[p].status === 'covered') banked += STAKE;
+      else outstanding += STAKE;
+    });
+  });
+  return { banked, outstanding };
+}
+
+// Net off debts between each pair so A owes B a single figure
+function netDebts() {
+  const raw = {};
+  PARTICIPANTS.forEach(a => {
+    raw[a] = {};
+    PARTICIPANTS.forEach(b => { if (a !== b) raw[a][b] = 0; });
+  });
+
+  picks.forEach(gw => {
+    const pay = paymentsFor(gw);
+    PARTICIPANTS.forEach(p => {
+      const st = pay[p];
+      if (st.status === 'covered' && !st.settled && st.by && st.by !== p && raw[p] && raw[p][st.by] !== undefined) {
+        raw[p][st.by] += STAKE;
+      }
+    });
+  });
+
+  const settled = [];
+  for (let i = 0; i < PARTICIPANTS.length; i++) {
+    for (let j = i + 1; j < PARTICIPANTS.length; j++) {
+      const a = PARTICIPANTS[i], b = PARTICIPANTS[j];
+      const net = raw[a][b] - raw[b][a];
+      if (net > 0) settled.push({ debtor: a, creditor: b, amount: net });
+      else if (net < 0) settled.push({ debtor: b, creditor: a, amount: -net });
+    }
+  }
+  return settled;
+}
+
+// Weeks where this person still owes their own stake
+function unpaidWeeks(person) {
+  return picks.filter(gw => paymentsFor(gw)[person].status === 'unpaid').map(gw => gw.week);
+}
+
+function computeTable() {
+  return PARTICIPANTS.map(p => {
+    const rounds = picks.flatMap(gw => gw.entries[p] || []);
+    const settled = rounds.filter(r => r.result !== 'pending');
+    const points = settled.reduce((sum, r) => sum + pointsFor(r.result), 0);
+    const wins = settled.filter(r => r.result === 'win').length;
+    const draws = settled.filter(r => r.result === 'draw').length;
+    const losses = settled.filter(r => r.result === 'lose').length;
+    const pendingCount = rounds.length - settled.length;
+    return { name: p, points, wins, draws, losses, played: settled.length, pending: pendingCount };
+  }).sort((a,b) => b.points - a.points || b.wins - a.wins);
+}
+
+function renderTable() {
+  const table = computeTable();
+  const anyPending = table.some(r => r.pending > 0);
+  let html = `<thead><tr>
+    <th>#</th><th>Punter</th><th class="center">P</th>
+    <th class="center w">W</th><th class="center d">D</th><th class="center l">L</th>
+    <th class="center">Pts</th>${anyPending ? '<th class="center">Pend</th>' : ''}
+  </tr></thead><tbody>`;
+  table.forEach((row, i) => {
+    html += `<tr class="${i===0 && row.points > 0 ? 'leader' : ''}">
+      <td class="rank">${i===0 && row.points > 0 ? '&#127942;' : i+1}</td>
+      <td class="name">${escapeHtml(row.name)}</td>
+      <td class="center">${row.played}</td>
+      <td class="center w">${row.wins}</td>
+      <td class="center d">${row.draws}</td>
+      <td class="center l">${row.losses}</td>
+      <td class="center pts">${row.points}</td>
+      ${anyPending ? `<td class="center" style="color:#a882ac;">${row.pending || ''}</td>` : ''}
+    </tr>`;
+  });
+  html += '</tbody>';
+  document.getElementById('leagueTable').innerHTML = html;
+}
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function renderPersonBlocks() {
+  let html = '';
+  PARTICIPANTS.forEach(p => {
+    html += `<div class="person-block" data-person="${escapeHtml(p)}">
+      <div class="person-name">${escapeHtml(p)}</div>
+      <div class="pick-row">
+        <div class="team-search-wrap">
+          <input type="text" class="team-input" placeholder="Start typing a team...\u2026" autocomplete="off">
+          <div class="autocomplete-list"></div>
+        </div>
+      </div>
+      <div class="pick-row">
+        <div class="team-search-wrap">
+          <input type="text" class="team-input" placeholder="Start typing a team...\u2026" autocomplete="off">
+          <div class="autocomplete-list"></div>
+        </div>
+      </div>
+    </div>`;
+  });
+  document.getElementById('personBlocks').innerHTML = html;
+  document.querySelectorAll('.team-search-wrap').forEach(wrap => {
+    setupAutocomplete(wrap);
+  });
+}
+
+const LEAGUE_LABELS = {
+  PL: 'Prem', Champ: 'Champ\u2019ship', L1: 'League One', L2: 'League Two',
+  NL: 'National League', SPFL: 'Scot Prem', SPFL2: 'Scot Champ\u2019ship'
+};
+
+function setupAutocomplete(wrap) {
+  const input = wrap.querySelector('.team-input');
+  const list = wrap.querySelector('.autocomplete-list');
+  let activeIndex = -1;
+  let currentMatches = [];
+
+  function renderMatches(query) {
+    const q = query.trim().toLowerCase();
+    if (!q) {
+      list.classList.remove('open');
+      list.innerHTML = '';
+      currentMatches = [];
+      return;
+    }
+    currentMatches = CLUBS.filter(([name]) => name.toLowerCase().includes(q)).slice(0, 8);
+    if (currentMatches.length === 0) {
+      list.innerHTML = `<div class="autocomplete-item" style="color:#665f4d; cursor:default;">No match &mdash; you can still type your own</div>`;
+      list.classList.add('open');
+      return;
+    }
+    activeIndex = -1;
+    list.innerHTML = currentMatches.map(([name, league], i) =>
+      `<div class="autocomplete-item" data-index="${i}"><span>${escapeHtml(name)}</span><span class="league-tag">${LEAGUE_LABELS[league] || league}</span></div>`
+    ).join('');
+    list.classList.add('open');
+    list.querySelectorAll('.autocomplete-item[data-index]').forEach(item => {
+      item.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const idx = Number(item.getAttribute('data-index'));
+        input.value = currentMatches[idx][0];
+        list.classList.remove('open');
+      });
+    });
+  }
+
+  input.addEventListener('input', () => renderMatches(input.value));
+  input.addEventListener('focus', () => { if (input.value.trim()) renderMatches(input.value); });
+  input.addEventListener('blur', () => {
+    setTimeout(() => list.classList.remove('open'), 120);
+  });
+  input.addEventListener('keydown', (e) => {
+    const items = list.querySelectorAll('.autocomplete-item[data-index]');
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      activeIndex = Math.min(activeIndex + 1, items.length - 1);
+      items.forEach((it, i) => it.classList.toggle('active', i === activeIndex));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeIndex = Math.max(activeIndex - 1, 0);
+      items.forEach((it, i) => it.classList.toggle('active', i === activeIndex));
+    } else if (e.key === 'Enter') {
+      if (activeIndex >= 0 && currentMatches[activeIndex]) {
+        e.preventDefault();
+        input.value = currentMatches[activeIndex][0];
+        list.classList.remove('open');
+      }
+    } else if (e.key === 'Escape') {
+      list.classList.remove('open');
+    }
+  });
+}
+function styleSelect(sel) {
+  sel.style.background = resultBg(sel.value);
+  sel.style.color = resultColor(sel.value);
+}
+
+function renderHistory() {
+  const section = document.getElementById('historySection');
+  const resetBtn = document.getElementById('resetBtn');
+  if (picks.length === 0) {
+    section.innerHTML = '';
+    resetBtn.style.display = 'none';
+    return;
+  }
+  resetBtn.style.display = 'inline-flex';
+  let html = '<div class="history-label">Gameweek History</div>';
+  [...picks].reverse().forEach(gw => {
+    const hasPending = PARTICIPANTS.some(p => (gw.entries[p]||[]).some(pk => pk.result === 'pending'));
+    html += `<div class="gw-card">
+      <div class="gw-head">
+        <div class="gw-title">${escapeHtml(gw.gameweek)}${hasPending ? ' <span style="color:#a882ac; font-weight:400; font-size:11px;">&middot; awaiting results</span>' : ''}</div>
+        <button class="del-btn" data-id="${gw.id}">Delete</button>
+      </div>`;
+    PARTICIPANTS.forEach(p => {
+      const entries = gw.entries[p] || [];
+      html += `<div class="gw-row"><span>${escapeHtml(p)}</span><span style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">`;
+      entries.forEach((pick, pIdx) => {
+        html += `<span class="badge" style="background:${resultBg(pick.result)};color:${resultColor(pick.result)}; display:inline-flex; align-items:center; gap:4px;">
+          ${escapeHtml(pick.team)}
+          <select class="inline-result-select" data-gwid="${gw.id}" data-person="${escapeHtml(p)}" data-pickidx="${pIdx}" style="background:transparent; color:inherit; border:none; font-weight:600; font-size:12px; font-family:inherit;">
+            <option value="pending" ${pick.result==='pending'?'selected':''}>Pending</option>
+            <option value="win" ${pick.result==='win'?'selected':''}>Win (3)</option>
+            <option value="draw" ${pick.result==='draw'?'selected':''}>Draw (1)</option>
+            <option value="lose" ${pick.result==='lose'?'selected':''}>Lose (0)</option>
+          </select>
+        </span>`;
+      });
+      html += `</span></div>`;
+    });
+    html += `<div class="pay-divider">Stakes \u00b7 \u00a3${STAKE} each</div>`;
+    const pay = paymentsFor(gw);
+    PARTICIPANTS.forEach(p => {
+      const st = pay[p];
+      const others = PARTICIPANTS.filter(o => o !== p);
+      html += `<div class="pay-row">
+        <span>${escapeHtml(p)}</span>
+        <span class="pay-controls">
+          <select class="pay-status" data-gwid="${gw.id}" data-person="${escapeHtml(p)}">
+            <option value="unpaid" ${st.status==='unpaid'?'selected':''}>Not paid</option>
+            <option value="paid" ${st.status==='paid'?'selected':''}>Paid</option>
+            <option value="covered" ${st.status==='covered'?'selected':''}>Covered by\u2026</option>
+          </select>
+          ${st.status === 'covered' ? `<select class="pay-by" data-gwid="${gw.id}" data-person="${escapeHtml(p)}">
+            ${others.map(o => `<option value="${escapeHtml(o)}" ${st.by===o?'selected':''}>${escapeHtml(o)}</option>`).join('')}
+          </select>
+          <label class="settled-toggle"><input type="checkbox" class="pay-settled" data-gwid="${gw.id}" data-person="${escapeHtml(p)}" ${st.settled?'checked':''}> paid back</label>` : ''}
+        </span>
+      </div>`;
+    });
+
+    html += `</div>`;
+  });
+  section.innerHTML = html;
+  document.querySelectorAll('.del-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = Number(btn.getAttribute('data-id'));
+      picks = picks.filter(gw => gw.id !== id);
+      save(picks);
+      renderAll();
+    });
+  });
+  document.querySelectorAll('.inline-result-select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const gwId = Number(sel.getAttribute('data-gwid'));
+      const person = sel.getAttribute('data-person');
+      const pickIdx = Number(sel.getAttribute('data-pickidx'));
+      const gw = picks.find(g => g.id === gwId);
+      if (gw && gw.entries[person] && gw.entries[person][pickIdx]) {
+        gw.entries[person][pickIdx].result = sel.value;
+        save(picks);
+        renderAll();
+      }
+    });
+  });
+  document.querySelectorAll('.pay-status').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const gw = picks.find(g => g.id === Number(sel.getAttribute('data-gwid')));
+      const person = sel.getAttribute('data-person');
+      if (!gw) return;
+      const pay = paymentsFor(gw);
+      pay[person].status = sel.value;
+      if (sel.value === 'covered') {
+        if (!pay[person].by || pay[person].by === person) {
+          pay[person].by = PARTICIPANTS.find(o => o !== person) || null;
+        }
+      } else {
+        pay[person].by = null;
+      }
+      save(picks);
+      renderAll();
+    });
+  });
+  document.querySelectorAll('.pay-by').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const gw = picks.find(g => g.id === Number(sel.getAttribute('data-gwid')));
+      const person = sel.getAttribute('data-person');
+      if (!gw) return;
+      paymentsFor(gw)[person].by = sel.value;
+      save(picks);
+      renderAll();
+    });
+  });
+  document.querySelectorAll('.pay-settled').forEach(box => {
+    box.addEventListener('change', () => {
+      const gw = picks.find(g => g.id === Number(box.getAttribute('data-gwid')));
+      const person = box.getAttribute('data-person');
+      if (!gw) return;
+      paymentsFor(gw)[person].settled = box.checked;
+      save(picks);
+      renderAll();
+    });
+  });
+}
+
+function renderAll() {
+  renderTable();
+  renderKitty();
+  renderHistory();
+  renderSeasonLine();
+}
+
+function renderKitty() {
+  const section = document.getElementById('kittySection');
+  if (picks.length === 0) { section.innerHTML = ''; return; }
+
+  const { banked, outstanding } = kittyTotals();
+  const debts = netDebts();
+
+  let html = `<div class="kitty">
+    <div class="kitty-head">
+      <span class="kitty-label">The Kitty</span>
+      <span class="kitty-total">\u00a3${banked}${outstanding ? `<small>\u00a3${outstanding} still owed to the pot</small>` : ''}</span>
+    </div>`;
+
+  // Members in arrears on their own stake
+  const arrears = PARTICIPANTS
+    .map(p => ({ p, weeks: unpaidWeeks(p) }))
+    .filter(x => x.weeks.length > 0);
+
+  if (arrears.length) {
+    arrears.forEach(({ p, weeks }) => {
+      html += `<div class="arrears">${escapeHtml(p)} hasn\u2019t paid for week${weeks.length > 1 ? 's' : ''} ${weeks.join(', ')} &mdash; \u00a3${weeks.length * STAKE}</div>`;
+    });
+  }
+
+  html += `<div class="pay-divider">Who owes who</div>`;
+  if (debts.length === 0) {
+    html += `<div class="owed-clear">Nobody owes anybody. All square.</div>`;
+  } else {
+    debts.forEach(d => {
+      html += `<div class="debt-row">
+        <span>${escapeHtml(d.debtor)} \u2192 ${escapeHtml(d.creditor)}</span>
+        <span class="debt-amount">\u00a3${d.amount}</span>
+      </div>`;
+    });
+  }
+
+  html += `</div>`;
+  section.innerHTML = html;
+}
+function renderSeasonLine() {
+  const logged = usedWeeks().length;
+  const next = nextFreeWeek();
+  const el = document.getElementById('seasonLine');
+  if (!el) return;
+  el.textContent = next
+    ? `Week ${next} of ${TOTAL_WEEKS} up next \u00b7 ${logged} logged`
+    : `Season complete \u00b7 all ${TOTAL_WEEKS} weeks logged`;
+}
+
+document.getElementById('showFormBtn').addEventListener('click', () => {
+  renderPersonBlocks();
+  populateWeekSelect();
+  document.getElementById('formPanel').style.display = 'block';
+  document.getElementById('showFormBtn').style.display = 'none';
+  document.getElementById('formError').style.display = 'none';
+});
+document.getElementById('cancelBtn').addEventListener('click', () => {
+  document.getElementById('formPanel').style.display = 'none';
+  document.getElementById('showFormBtn').style.display = 'block';
+});
+document.getElementById('saveGwBtn').addEventListener('click', () => {
+  const week = Number(document.getElementById('gwName').value);
+  const errorEl = document.getElementById('formError');
+  if (!week) {
+    errorEl.textContent = "Pick a gameweek.";
+    errorEl.style.display = 'block';
+    return;
+  }
+  if (usedWeeks().includes(week)) {
+    errorEl.textContent = `Week ${week} is already logged. Delete it first to re-enter.`;
+    errorEl.style.display = 'block';
+    return;
+  }
+  const entries = {};
+  let ok = true;
+  document.querySelectorAll('.person-block').forEach(block => {
+    const person = block.getAttribute('data-person');
+    const teamInputs = block.querySelectorAll('.team-input');
+    const list = [];
+    teamInputs.forEach((inp) => {
+      const team = inp.value.trim();
+      if (!team) ok = false;
+      list.push({ team, result: 'pending' });
+    });
+    entries[person] = list;
+  });
+  if (!ok) {
+    errorEl.textContent = "Every punter needs both teams filled in.";
+    errorEl.style.display = 'block';
+    return;
+  }
+  picks.push({ id: Date.now(), week, gameweek: `Week ${week}`, entries });
+  picks.sort((a, b) => (a.week || 0) - (b.week || 0));
+  save(picks);
+  document.getElementById('formPanel').style.display = 'none';
+  document.getElementById('showFormBtn').style.display = 'block';
+  renderAll();
+});
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (confirm('Wipe every week back to Week 1? This cannot be undone.')) {
+    picks = [SEED_WEEK_1];
+    save(picks);
+    renderAll();
+  }
+});
+
+initFirebase();
+</script>
+</body>
+</html>
