@@ -150,6 +150,23 @@
   .settled-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #a882ac; cursor: pointer; text-transform: none; letter-spacing: 0; font-weight: 400; margin: 0; }
   .settled-toggle input { accent-color: #00ff85; margin: 0; }
   .pay-divider { margin: 12px 0 4px; font-size: 10px; letter-spacing: 1.5px; color: #7d5983; text-transform: uppercase; font-weight: 700; border-top: 1px solid #4a0e50; padding-top: 10px; }
+  .follow { background:#2b002e; border:1px solid #55105c; border-radius:10px; padding:16px 18px; margin-bottom:22px; }
+  .follow-head { font-size:12px; letter-spacing:1.5px; color:#04f5ff; text-transform:uppercase; font-weight:700; margin-bottom:12px; }
+  .follow-table { width:100%; border-collapse:collapse; background:transparent; border:none; margin:0; box-shadow:none; }
+  .follow-table thead tr { background:transparent; }
+  .follow-table th { padding:6px 4px; font-size:10px; letter-spacing:0.5px; color:#a882ac; text-transform:uppercase; }
+  .follow-table th.c, .follow-table td.c { text-align:center; }
+  .follow-table td { padding:9px 4px; border-top:1px solid #4a0e50; font-size:13px; color:#fff; vertical-align:middle; }
+  .follow-table tbody tr { border:none; }
+  .follow-row { display:flex; align-items:center; gap:8px; padding:7px 0; border-top:1px solid #4a0e50; font-size:13px; }
+  .follow-row:first-of-type { border-top:none; }
+  .follow-team { flex:1; color:#fff; font-weight:600; }
+  .follow-who { font-size:10px; color:#a882ac; text-transform:uppercase; letter-spacing:0.5px; }
+  .follow-link { background:#00ff85; color:#1a0020; text-decoration:none; padding:5px 12px; border-radius:20px; font-size:11px; font-weight:800; text-transform:uppercase; white-space:nowrap; }
+  .follow-fix { display:block; font-size:11px; color:#c9a8ce; font-weight:400; margin:1px 0; }
+  .follow-score { font-size:18px; font-weight:900; white-space:nowrap; }
+  .flashscore-btn { display:block; text-align:center; margin-top:12px; padding:11px; background:transparent; color:#04f5ff; border:1px solid #55105c; border-radius:8px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; text-decoration:none; }
+  .follow-note { font-size:11px; color:#a882ac; margin-top:10px; font-style:italic; }
   .backfill-btn { width:100%; padding:11px; background:transparent; color:#04f5ff; border:1px solid #55105c; border-radius:8px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; cursor:pointer; margin-bottom:14px; font-family:inherit; }
   .reset-link { margin-top: 18px; background: none; border: none; color: #7d5983; font-size: 12px; cursor: pointer; }
 </style>
@@ -191,6 +208,8 @@
   </div>
 
   <div id="historySection"></div>
+
+  <div id="followSection"></div>
 
   <button class="reset-link" id="resetBtn" style="display:none;">&#8635; Reset whole season</button>
 </div>
@@ -529,6 +548,7 @@ function outcomeFor(ev, team) {
 }
 
 let rateLimitedUntil = 0;
+let liveEvents = [];
 
 async function syncOddsAndResults() {
   if (Date.now() < rateLimitedUntil) {
@@ -557,6 +577,8 @@ async function syncOddsAndResults() {
     return;
   }
   if (!events.length) { setOdds('Odds feed: 0 events returned', 'bad'); return; }
+  liveEvents = events;
+  renderFollow();
   window.__evDebug = 'event keys: ' + Object.keys(events[0] || {}).slice(0, 8).join(',');
 
   let changed = 0, wanted = 0, matched = 0;
@@ -1091,9 +1113,100 @@ function renderHistory() {
 
 function renderAll() {
   renderTable();
+  renderFollow();
   renderKitty();
   renderHistory();
   renderSeasonLine();
+}
+
+
+
+// Best-effort score read - the free tier may not expose these
+function scoreOf(ev) {
+  const sc = ev && (ev.score || ev.scores || ev.result);
+  if (!sc) return null;
+  const h = sc.home ?? sc.homeScore ?? (sc.ft && sc.ft.home);
+  const a = sc.away ?? sc.awayScore ?? (sc.ft && sc.ft.away);
+  if (h === undefined || a === undefined || h === null || a === null) return null;
+  return { h: h, a: a };
+}
+
+function kickoffOf(ev) {
+  if (!ev || !ev.date) return '';
+  try {
+    const d = new Date(ev.date);
+    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  } catch (e) { return ''; }
+}
+
+// Live scores for the current match week's picks
+function renderFollow() {
+  const el = document.getElementById('followSection');
+  if (!el) return;
+  // The week actually in play: the earliest one that still has results
+  // outstanding. Falls back to the most recent week if everything is settled.
+  let gw = picks
+    .filter(g => PARTICIPANTS.some(p => (g.entries && g.entries[p] || [])
+                    .some(pk => pk.result === 'pending')))
+    .sort((a, b) => (a.week || 0) - (b.week || 0))[0];
+  if (!gw) gw = picks.find(g => g.week === currentWeek());
+  if (!gw) { el.innerHTML = ''; return; }
+  const w = gw.week;
+
+  // one row per distinct team, noting who backed it
+  const byTeam = {};
+  PARTICIPANTS.forEach(person => {
+    (gw.entries[person] || []).forEach(pick => {
+      if (!pick.team) return;
+      if (!byTeam[pick.team]) byTeam[pick.team] = [];
+      byTeam[pick.team].push(person.split(' ')[0]);
+    });
+  });
+  const teams = Object.keys(byTeam);
+  if (!teams.length) { el.innerHTML = ''; return; }
+
+  let html = `<div class="follow">
+    <div class="follow-head">Match week ${w} \u00b7 today\u2019s games</div>
+    <table class="follow-table"><thead><tr>
+      <th>Fixture</th><th class="c">Score</th><th class="c">Backed by</th>
+    </tr></thead><tbody>`;
+
+  let anyScore = false;
+  teams.forEach(team => {
+    const q = encodeURIComponent(team + ' score');
+    const ev = liveEvents.find(e => teamsMatch(team, e.home) || teamsMatch(team, e.away));
+    const sc = ev ? scoreOf(ev) : null;
+    const atHome = ev ? teamsMatch(team, ev.home) : true;
+    const opp = ev ? (atHome ? ev.away : ev.home) : '';
+
+    let fixture = `<strong>${escapeHtml(team)}</strong>`;
+    if (opp) fixture += `<span class="follow-fix">${atHome ? 'v ' : 'at '}${escapeHtml(opp)}</span>`;
+
+    let scoreCell;
+    if (sc) {
+      anyScore = true;
+      const mine = atHome ? sc.h : sc.a;
+      const theirs = atHome ? sc.a : sc.h;
+      const tone = mine > theirs ? '#00ff85' : mine === theirs ? '#04f5ff' : '#ff5c8a';
+      scoreCell = `<span class="follow-score" style="color:${tone}">${mine}\u2013${theirs}</span>`;
+    } else {
+      scoreCell = `<a class="follow-link" href="https://www.google.com/search?q=${q}" target="_blank" rel="noopener">${ev && kickoffOf(ev) ? kickoffOf(ev) : 'Live'}</a>`;
+    }
+
+    html += `<tr>
+      <td>${fixture}</td>
+      <td class="c">${scoreCell}</td>
+      <td class="c follow-who">${escapeHtml(byTeam[team].join(', '))}</td>
+    </tr>`;
+  });
+
+  html += `</tbody></table>
+    <a class="flashscore-btn" href="https://www.flashscore.co.uk/" target="_blank" rel="noopener">Open Flashscore</a>
+    <div class="follow-note">${anyScore
+      ? 'Scores refresh automatically.'
+      : 'Scores appear once matches are under way. Tap the time for the running score meanwhile.'}</div></div>`;
+
+  el.innerHTML = html;
 }
 
 function renderKitty() {
