@@ -244,7 +244,7 @@
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
     <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
-    <div class="sync-status" style="color:#7d5983;">build 52</div>
+    <div class="sync-status" style="color:#7d5983;">build 53</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1008,8 +1008,7 @@ function computeTable() {
     // in-play: what pending picks are worth if the score stood right now
     let livePts = 0, liveOn = 0;
     rounds.filter(r => r.result === 'pending').forEach(r => {
-      const src = leagueFixtures.length ? leagueFixtures : liveEvents;
-      const ev = findEvent(src, r.team);
+      const ev = currentFixtureFor(r.team);
       if (!ev || !ev.date) return;
       // only count a game that has actually kicked off and is still in progress
       const kick = new Date(ev.date).getTime();
@@ -1411,6 +1410,24 @@ function isSeniorMens(ev) {
 }
 
 // Prefer an exact name match before falling back to a looser one
+// The fixture a pick refers to: the next one for that team, or the one
+// currently in play. Never an old result or a match weeks away.
+function currentFixtureFor(team) {
+  const src = (leagueFixtures.length ? leagueFixtures : liveEvents)
+    .filter(e => e && e.date && (teamsMatch(team, e.home) || teamsMatch(team, e.away)));
+  if (!src.length) return null;
+  const now = Date.now();
+  const withT = src.map(e => ({ e, t: new Date(e.date).getTime() }))
+                   .filter(x => !isNaN(x.t));
+  // in play right now?
+  const live = withT.filter(x => x.t <= now && now - x.t < 3.5 * 3600 * 1000)
+                    .sort((a, b) => b.t - a.t)[0];
+  if (live) return live.e;
+  // otherwise the next one to come
+  const next = withT.filter(x => x.t > now).sort((a, b) => a.t - b.t)[0];
+  return next ? next.e : null;
+}
+
 function findEvent(list, team) {
   const t = normaliseTeam(team);
   let hit = list.find(e => normaliseTeam(e.home) === t || normaliseTeam(e.away) === t);
@@ -2141,9 +2158,8 @@ function renderFollow() {
   if (!teams.length) { el.innerHTML = ''; return; }
 
   // if every one of those fixtures has already kicked off and finished, hide
-  const src = leagueFixtures.length ? leagueFixtures : liveEvents;
   const anyLive = teams.some(t => {
-    const ev = findEvent(src, t);
+    const ev = currentFixtureFor(t);
     if (!ev || !ev.date) return true;                 // unknown, keep showing
     const kick = new Date(ev.date).getTime();
     if (kick > Date.now()) return true;               // still to come
@@ -2160,7 +2176,7 @@ function renderFollow() {
   let anyScore = false;
   teams.forEach(team => {
     const q = encodeURIComponent(team + ' score');
-    const ev = findEvent(liveEvents, team);
+    const ev = currentFixtureFor(team);
     let sc = ev ? scoreOf(ev) : null;
     if (ev && ev.date) {
       const since = Date.now() - new Date(ev.date).getTime();
