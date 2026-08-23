@@ -243,7 +243,8 @@
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 48</div>
+    <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
+    <div class="sync-status" style="color:#7d5983;">build 49</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -420,6 +421,13 @@ const CLUBS = [
 let picks = [];
 let dbReady = false;
 let seasonRef = null;
+
+function showErr(where, e) {
+  const el = document.getElementById('errStatus');
+  if (el) el.textContent = 'ERROR in ' + where + ': ' + (e && e.message ? e.message : e);
+}
+
+window.addEventListener('error', (ev) => showErr('page', ev.error || ev.message));
 
 function setFormStatus(text, tone) {
   const el = document.getElementById('formStatus');
@@ -1358,12 +1366,12 @@ function renderHistory() {
 }
 
 function renderAll() {
-  renderTable();
-  renderPickPrompt();
-  renderFollow();
-  renderKitty();
-  renderHistory();
-  renderSeasonLine();
+  const steps = [['table', renderTable], ['picker', renderPickPrompt], ['kitty', renderKitty],
+                 ['history', renderHistory], ['season', renderSeasonLine], ['live', renderFollow]];
+  steps.forEach(([name, fn]) => {
+    try { if (typeof fn === 'function') fn(); }
+    catch (e) { showErr(name, e); }
+  });
 }
 
 
