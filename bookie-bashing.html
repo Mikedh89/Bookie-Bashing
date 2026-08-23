@@ -171,7 +171,7 @@
   .picker-count { font-size:11px; color:#a882ac; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; }
   .picker-mine { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
   .picker-chip { background:#00ff85; color:#1a0020; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:800; cursor:pointer; }
-  .picker-list { max-height:330px; overflow-y:auto; border-top:1px solid #4a0e50; padding-top:8px; }
+  .picker-list { border-top:1px solid #4a0e50; padding-top:8px; }
   .lg-head { display:flex; align-items:center; gap:6px; font-size:11px; letter-spacing:0.5px; text-transform:uppercase; color:#04f5ff; font-weight:700; margin:12px 0 6px; cursor:pointer; user-select:none; }
   .lg-count { margin-left:auto; color:#7d5983; font-weight:400; text-transform:none; letter-spacing:0; }
   .picker-day { font-size:10px; letter-spacing:1px; text-transform:uppercase; color:#04f5ff; font-weight:700; margin:10px 0 4px; }
@@ -244,7 +244,7 @@
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
     <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
-    <div class="sync-status" style="color:#7d5983;">build 53</div>
+    <div class="sync-status" style="color:#7d5983;">build 54</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1072,8 +1072,14 @@ function pickBlurb(r) {
     else if (r.h2h.theirs > r.h2h.mine) bits.push('though the head-to-head favours the opposition');
   }
 
-  if (!bits.length) return '';
   const name = r.team.replace(/ (FC|AFC)$/, '');
+
+  if (!bits.length) {
+    // no form or table data - fall back to what the market says
+    if (r.pr >= 60) return name + ' are strong favourites here at ' + toFractional(r.od) + '.';
+    if (r.pr >= 45) return name + ' are favoured at ' + toFractional(r.od) + '.';
+    return name + ' are the pick on price at ' + toFractional(r.od) + '.';
+  }
   return name + ' are ' + bits.join(', ') + '.';
 }
 
