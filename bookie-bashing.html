@@ -244,7 +244,7 @@
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
     <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
-    <div class="sync-status" style="color:#7d5983;">build 49</div>
+    <div class="sync-status" style="color:#7d5983;">build 50</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -502,6 +502,7 @@ function initFirebase() {
         // stored as { week_1: {...}, week_2: {...} }
         picks = Object.keys(val).map(k => val[k])
                       .filter(Boolean)
+                      .map(normaliseWeek)
                       .sort((a, b) => (a.week || 0) - (b.week || 0));
         dbReady = true;
       }
@@ -915,6 +916,20 @@ function lockMessage(gw) {
 }
 
 // Ensure any gameweek (including older saved ones) has a payments block
+// Firebase drops empty objects and arrays, so a week can come back with no
+// entries or payments at all. Put them back before anything reads them.
+function normaliseWeek(gw) {
+  if (!gw || typeof gw !== 'object') return gw;
+  if (!gw.entries || typeof gw.entries !== 'object') gw.entries = {};
+  PARTICIPANTS.forEach(p => {
+    if (gw.entries[p] && !Array.isArray(gw.entries[p])) {
+      gw.entries[p] = Object.values(gw.entries[p]);      // object-ified array
+    }
+  });
+  if (!gw.payments || typeof gw.payments !== 'object') gw.payments = {};
+  return gw;
+}
+
 function paymentsFor(gw) {
   if (!gw.payments) gw.payments = {};
   PARTICIPANTS.forEach(p => {
@@ -981,7 +996,7 @@ function unpaidWeeks(person) {
 
 function computeTable() {
   return PARTICIPANTS.map(p => {
-    const rounds = picks.flatMap(gw => gw.entries[p] || []);
+    const rounds = picks.flatMap(gw => (gw.entries && gw.entries[p]) || []);
     const settled = rounds.filter(r => r.result !== 'pending');
     const points = settled.reduce((sum, r) => sum + pointsFor(r.result), 0);
     const wins = settled.filter(r => r.result === 'win').length;
@@ -1241,7 +1256,7 @@ function renderHistory() {
       </div>`;
     if (open) {
     PARTICIPANTS.forEach(p => {
-      const entries = gw.entries[p] || [];
+      const entries = (gw.entries && gw.entries[p]) || [];
       html += `<div class="gw-row"><span class="name-cell">${badgeImg(p, 22)}<span>${escapeHtml(p)}</span></span><span style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">`;
       if (entries.length === 0) {
         html += `<span style="color:#7d5983; font-size:12px; font-style:italic;">no picks in yet</span>`;
