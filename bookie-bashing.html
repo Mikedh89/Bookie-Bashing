@@ -237,7 +237,7 @@
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 41</div>
+    <div class="sync-status" style="color:#7d5983;">build 42</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -454,12 +454,14 @@ function initFirebase() {
     cacheRef.on('value', (snap) => {
       const c = snap.val();
       if (!c) return;
-      if (c.v !== CACHE_VERSION) { cacheAt = 0; return; }   // built by an older build
+      // An older cache is still better than nothing: show it, but mark it
+      // stale so it refreshes as soon as the API allows.
+      const stale = c.v !== CACHE_VERSION;
       if (Array.isArray(c.fixtures) && c.fixtures.length) leagueFixtures = c.fixtures;
       if (c.form) teamForm = c.form;
 
       if (c.pos) teamPos = c.pos;
-      cacheAt = c.fetchedAt || 0;
+      cacheAt = stale ? 0 : (c.fetchedAt || 0);
       renderPickPrompt();
     });
     boardRef.on('value', (snap) => { oddsBoard = snap.val() || {}; renderPickPrompt(); });
@@ -1847,6 +1849,13 @@ function renderPickPrompt() {
   if (mine.length) {
     html += `<div class="picker-mine">${mine.map(m =>
       `<span class="picker-chip" data-team="${escapeHtml(m.team)}">${escapeHtml(m.team)} \u00d7</span>`).join('')}</div>`;
+  }
+
+  if (!fixtures.length && Date.now() < rateLimitedUntil) {
+    html += `<div class="picker-note">Fixtures unavailable right now \u2014 the odds feed is rate limited.
+      They\u2019ll come back automatically. Use Log my picks meanwhile.</div></div>`;
+    el.innerHTML = html;
+    return;
   }
 
   if (!fixtures.length) {
