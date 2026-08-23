@@ -244,7 +244,7 @@
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
     <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
-    <div class="sync-status" style="color:#7d5983;">build 51</div>
+    <div class="sync-status" style="color:#7d5983;">build 52</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1008,8 +1008,14 @@ function computeTable() {
     // in-play: what pending picks are worth if the score stood right now
     let livePts = 0, liveOn = 0;
     rounds.filter(r => r.result === 'pending').forEach(r => {
-      const ev = findEvent(liveEvents, r.team);
-      const sc = ev ? scoreOf(ev) : null;
+      const src = leagueFixtures.length ? leagueFixtures : liveEvents;
+      const ev = findEvent(src, r.team);
+      if (!ev || !ev.date) return;
+      // only count a game that has actually kicked off and is still in progress
+      const kick = new Date(ev.date).getTime();
+      const since = Date.now() - kick;
+      if (isNaN(kick) || since < 0 || since > 3.5 * 3600 * 1000) return;
+      const sc = scoreOf(ev);
       if (!sc) return;
       const atHome = teamsMatch(r.team, ev.home);
       const mine = atHome ? sc.h : sc.a;
@@ -2155,7 +2161,11 @@ function renderFollow() {
   teams.forEach(team => {
     const q = encodeURIComponent(team + ' score');
     const ev = findEvent(liveEvents, team);
-    const sc = ev ? scoreOf(ev) : null;
+    let sc = ev ? scoreOf(ev) : null;
+    if (ev && ev.date) {
+      const since = Date.now() - new Date(ev.date).getTime();
+      if (since < 0) sc = null;                    // hasn't kicked off yet
+    }
     const atHome = ev ? teamsMatch(team, ev.home) : true;
     const opp = ev ? (atHome ? ev.away : ev.home) : '';
 
