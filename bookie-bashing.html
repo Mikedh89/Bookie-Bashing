@@ -237,7 +237,8 @@
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 44</div>
+    <div class="sync-status" id="formStatus"></div>
+    <div class="sync-status" style="color:#7d5983;">build 45</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -411,6 +412,13 @@ const CLUBS = [
 let picks = [];
 let dbReady = false;
 let seasonRef = null;
+
+function setFormStatus(text, tone) {
+  const el = document.getElementById('formStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = tone === 'bad' ? '#ff5c8a' : tone === 'good' ? '#00ff85' : '#a882ac';
+}
 
 function setFixStatus(text, tone) {
   const el = document.getElementById('fixStatus');
@@ -1478,7 +1486,7 @@ async function fetchForm(slugs) {
 
   if (Object.keys(form).length) {
     teamForm = form;
-    setFixStatus('Form: ' + Object.keys(form).length + ' teams', 'good');
+    setFormStatus('Form: ' + Object.keys(form).length + ' teams \u00b7 ' + Object.keys(teamPos).length + ' ranked', 'good');
     saveCache();
     renderPickPrompt();
   }
