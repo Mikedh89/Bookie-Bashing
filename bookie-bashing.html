@@ -178,6 +178,8 @@
   .fixture { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
   .side { flex:1; padding:9px 8px; background:#1a0020; border:1px solid #55105c; border-radius:6px; color:#e8d4ea; font-size:12px; font-family:inherit; cursor:pointer; text-align:center; line-height:1.2; }
   .side.sel { background:#00ff85; color:#1a0020; border-color:#00ff85; font-weight:800; }
+  .side-pos { color:#a882ac; font-weight:600; font-size:10px; margin-left:3px; }
+  .side.sel .side-pos { color:#1a4030; }
   .side-prob { color:#a882ac; font-weight:600; }
   .side.sel .side-prob { color:#1a4030; }
   .side-odds { display:block; font-size:11px; font-weight:800; color:#04f5ff; margin-top:2px; }
@@ -233,7 +235,7 @@
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 37</div>
+    <div class="sync-status" style="color:#7d5983;">build 38</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -453,6 +455,8 @@ function initFirebase() {
       if (c.v !== CACHE_VERSION) { cacheAt = 0; return; }   // built by an older build
       if (Array.isArray(c.fixtures) && c.fixtures.length) leagueFixtures = c.fixtures;
       if (c.form) teamForm = c.form;
+
+      if (c.pos) teamPos = c.pos;
       cacheAt = c.fetchedAt || 0;
       renderPickPrompt();
     });
@@ -1355,7 +1359,7 @@ let openLeagues = null;   // null = Premier League only
 let leagueFixtures = [];  // fixtures fetched per league slug
 let cacheRef = null;
 let cacheAt = 0;
-const CACHE_VERSION = 35;
+const CACHE_VERSION = 38;
 // The cache holds until next Saturday's games have been played. Fixtures
 // don't change once published, so there's no reason to refetch sooner.
 function cacheIsStale() {
@@ -1369,7 +1373,8 @@ function cacheIsStale() {
   // otherwise refresh at most once a day, to pick up late additions
   return (now - cacheAt) > 24 * 3600 * 1000;
 }
-let teamForm = {};        // { 'Everton': { pts: 9, played: 5, seq: 'WWLDW' } }
+let teamForm = {};
+let teamPos = {};        // { 'Everton': { pts: 9, played: 5, seq: 'WWLDW' } }
 
 // Recent form, derived from settled results in the same leagues using the
 // odds API we already have. API-Football's free tier only serves historical
@@ -1380,6 +1385,7 @@ async function fetchForm(slugs) {
   if (!slugs || !slugs.length) return;
   if (teamForm && Object.keys(teamForm).length && !cacheIsStale()) return;
   const form = {};
+  const positions = {};
   for (const slug of slugs) {
     try {
       const r = await fetch('https://api.odds-api.io/v3/events?sport=football&league=' + encodeURIComponent(slug)
@@ -1389,21 +1395,47 @@ async function fetchForm(slugs) {
       const d = await r.json();
       const evs = (Array.isArray(d) ? d : (d.events || d.data || [])).filter(isSeniorMens);
       evs.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      const table = {};   // full-season table for this league
       evs.forEach(ev => {
         const sc = scoreOf(ev);
         if (!sc) return;
         [[ev.home, sc.h, sc.a], [ev.away, sc.a, sc.h]].forEach(([team, mine, theirs]) => {
           if (!team) return;
+
+          // last five, for form
           const f = form[team] = form[team] || { pts: 0, played: 0, seq: '' };
-          if (f.played >= 5) return;
-          f.played++;
-          if (mine > theirs) { f.pts += 3; f.seq += 'W'; }
-          else if (mine === theirs) { f.seq += 'D'; }
-          else { f.seq += 'L'; }
+          if (f.played < 5) {
+            f.played++;
+            if (mine > theirs) { f.pts += 3; f.seq += 'W'; }
+            else if (mine === theirs) { f.seq += 'D'; }
+            else { f.seq += 'L'; }
+          }
+
+          // whole season, for league position
+          const t = table[team] = table[team] || { pts: 0, gd: 0, gf: 0 };
+          t.gf += mine; t.gd += mine - theirs;
+          if (mine > theirs) t.pts += 3;
+          else if (mine === theirs) t.pts += 1;
         });
       });
+
+      Object.keys(table)
+        .sort((a, b) => table[b].pts - table[a].pts
+                     || table[b].gd - table[a].gd
+                     || table[b].gf - table[a].gf)
+        .forEach((team, i) => { positions[team] = i + 1; });
     } catch (e) { /* skip */ }
   }
+  if (Object.keys(positions).length) teamPos = positions;
+  const ranks = {};
+  Object.keys(tables).forEach(slug => {
+    Object.entries(tables[slug])
+      .sort((a, b) => b[1].pts - a[1].pts || b[1].gd - a[1].gd || a[0].localeCompare(b[0]))
+      .forEach(([team], i) => { ranks[team] = i + 1; });
+  });
+  if (Object.keys(ranks).length) teamPos = ranks;
+
   if (Object.keys(form).length) {
     teamForm = form;
     setFixStatus('Form: ' + Object.keys(form).length + ' teams', 'good');
@@ -1430,7 +1462,18 @@ function saveCache() {
     id: e.id, home: e.home, away: e.away, date: e.date,
     league: { name: (e.league && (e.league.name || e.league.slug)) || '' }
   }));
-  cacheRef.set({ v: CACHE_VERSION, fetchedAt: Date.now(), fixtures: slim, form: teamForm }).catch(() => {});
+  cacheRef.set({ v: CACHE_VERSION, fetchedAt: Date.now(), fixtures: slim, form: teamForm, pos: teamPos }).catch(() => {});
+}
+
+function posFor(team) {
+  if (teamPos[team]) return teamPos[team];
+  const k = Object.keys(teamPos).find(n => teamsMatch(n, team));
+  return k ? teamPos[k] : null;
+}
+
+function ordinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
 function formFor(team) {
@@ -1798,9 +1841,9 @@ function renderPickPrompt() {
       const hO = boardOdds(wk, ev.home), aO = boardOdds(wk, ev.away);
       const hP = winProbability(wk, ev, ev.home), aP = winProbability(wk, ev, ev.away);
       html += `<div class="fixture">
-        <button class="side ${hSel ? 'sel' : ''}" data-team="${escapeHtml(ev.home)}">${escapeHtml(ev.home)}${hO ? `<span class="side-odds">${toFractional(hO)}${hP ? ` <span class="side-prob">${hP}%</span>` : ''}</span>` : ''}</button>
+        <button class="side ${hSel ? 'sel' : ''}" data-team="${escapeHtml(ev.home)}">${escapeHtml(ev.home)}${posFor(ev.home) ? `<span class="side-pos">(${ordinal(posFor(ev.home))})</span>` : ''}${hO ? `<span class="side-odds">${toFractional(hO)}${hP ? ` <span class="side-prob">${hP}%</span>` : ''}</span>` : ''}</button>
         <span class="vs">v</span>
-        <button class="side ${aSel ? 'sel' : ''}" data-team="${escapeHtml(ev.away)}">${escapeHtml(ev.away)}${aO ? `<span class="side-odds">${toFractional(aO)}${aP ? ` <span class="side-prob">${aP}%</span>` : ''}</span>` : ''}</button>
+        <button class="side ${aSel ? 'sel' : ''}" data-team="${escapeHtml(ev.away)}">${escapeHtml(ev.away)}${posFor(ev.away) ? `<span class="side-pos">(${ordinal(posFor(ev.away))})</span>` : ''}${aO ? `<span class="side-odds">${toFractional(aO)}${aP ? ` <span class="side-prob">${aP}%</span>` : ''}</span>` : ''}</button>
       </div>`;
       });
     });
