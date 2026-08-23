@@ -222,6 +222,11 @@
   .follow-score { font-size:18px; font-weight:900; white-space:nowrap; }
   .flashscore-btn { display:block; text-align:center; margin-top:12px; padding:11px; background:transparent; color:#04f5ff; border:1px solid #55105c; border-radius:8px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; text-decoration:none; }
   .follow-note { font-size:11px; color:#a882ac; margin-top:10px; font-style:italic; }
+  .refresh-row { display:flex; justify-content:center; margin: 4px 0 18px; }
+  .refresh-btn { background:transparent; color:#04f5ff; border:1px solid #55105c; border-radius:8px;
+    padding:9px 16px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;
+    cursor:pointer; font-family:inherit; }
+  .refresh-btn:disabled { opacity:0.5; }
   .backfill-btn { width:100%; padding:11px; background:transparent; color:#04f5ff; border:1px solid #55105c; border-radius:8px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; cursor:pointer; margin-bottom:14px; font-family:inherit; }
   .reset-link { margin-top: 18px; background: none; border: none; color: #7d5983; font-size: 12px; cursor: pointer; }
 </style>
@@ -238,11 +243,14 @@
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 45</div>
+    <div class="sync-status" style="color:#7d5983;">build 46</div>
   </div>
 
   <table id="leagueTable"></table>
   <div id="liveFlag"></div>
+  <div class="refresh-row">
+    <button class="refresh-btn" id="refreshBtn">Refresh odds &amp; fixtures</button>
+  </div>
   <div id="pickPrompt"></div>
 
   <div id="kittySection"></div>
@@ -1438,7 +1446,7 @@ let formFetched = 0;
 async function fetchForm(slugs) {
   if (!slugs || !slugs.length) return;
   const havePositions = teamPos && Object.keys(teamPos).length;
-  if (teamForm && Object.keys(teamForm).length && havePositions && !cacheIsStale()) return;
+  if (!manualRefresh && teamForm && Object.keys(teamForm).length && havePositions) return;
   const form = {};
   const positions = {};
   for (const slug of slugs) {
@@ -1531,13 +1539,16 @@ function formFor(team) {
 }
 let fixturesFetched = 0;
 let fetchingFixtures = false;
+let manualRefresh = false;
 
 // The events endpoint only returns a useful list when given a league slug,
 // so ask for each of our competitions by name.
 async function fetchLeagueFixtures() {
   if (typeof ODDS_API_KEY === 'undefined' || ODDS_API_KEY.indexOf('PASTE') === 0) return;
   if (Date.now() < rateLimitedUntil) return;
-  if (!cacheIsStale()) return;   // shared cache still good, no API calls
+  // Only ever fetch on our own initiative when there is nothing at all to
+  // show. Everything else happens when someone taps Refresh.
+  if (!manualRefresh && leagueFixtures.length) return;
   if (fetchingFixtures) return;
   fetchingFixtures = true;
   cacheAt = Date.now();          // claim it so the other phones don't also fetch
@@ -1658,10 +1669,9 @@ let buildingBoard = false;
 async function buildOddsBoard(week, fixtures) {
   if (buildingBoard) return;
   const existing = oddsBoard['week_' + week];
-  const fixtureCount = fixtures.length;
   const havePrices = existing && existing.odds ? Object.keys(existing.odds).length : 0;
-  const complete = havePrices >= fixtureCount;          // roughly one price per side
-  if (existing && complete && !oddsDue(existing.taken)) return;
+  // keep filling gaps, but never start a fresh sweep on our own
+  if (!manualRefresh && havePrices >= fixtures.length) return;
   if (typeof ODDS_API_KEY === 'undefined' || ODDS_API_KEY.indexOf('PASTE') === 0) return;
   if (Date.now() < rateLimitedUntil) return;
   buildingBoard = true;
@@ -1699,7 +1709,7 @@ async function buildOddsBoard(week, fixtures) {
     oddsBoard['week_' + week] = snap;
     boardRef.child('week_' + week).set(snap).catch(() => {});
     repriceOpenPicks(week, odds);
-    if (calls >= BATCH) setTimeout(() => buildOddsBoard(week, fixtures), 90000);   // top up in 90s
+    if (calls >= BATCH && manualRefresh) setTimeout(() => buildOddsBoard(week, fixtures), 20000);
     const done = fixtures.filter(f => odds[f.home] || odds[f.away]).length;
     setOdds(done >= fixtures.length
       ? 'Odds complete \u00b7 ' + fixtures.length + ' fixtures'
@@ -2265,6 +2275,28 @@ document.getElementById('saveGwBtn').addEventListener('click', () => {
   renderAll();
 });
 document.getElementById('backfillBtn').addEventListener('click', backfillWeek1);
+
+document.getElementById('refreshBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('refreshBtn');
+  if (Date.now() < rateLimitedUntil) {
+    setFixStatus('Rate limited \u2014 try again in '
+      + Math.ceil((rateLimitedUntil - Date.now()) / 60000) + ' min', 'bad');
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Refreshing\u2026';
+  manualRefresh = true;
+  fetchingFixtures = false;
+  try {
+    await fetchLeagueFixtures();
+    const wk = nextFreeWeek();
+    if (wk) await buildOddsBoard(wk, upcomingFixtures().slice(0, 45));
+  } catch (e) { /* status lines report it */ }
+  manualRefresh = false;
+  btn.disabled = false;
+  btn.textContent = 'Refresh odds & fixtures';
+  renderAll();
+});
 document.getElementById('resetBtn').addEventListener('click', () => {
   if (confirm('Wipe every match week back to week 1? This cannot be undone.')) {
     if (seasonRef) seasonRef.remove();
