@@ -189,8 +189,8 @@
   .claude-pick { margin-top:14px; padding-top:12px; border-top:1px solid #4a0e50; }
   .claude-head { font-size:12px; letter-spacing:1px; text-transform:uppercase; color:#e9c46a; font-weight:700; }
   .claude-sub { font-size:11px; color:#a882ac; font-style:italic; margin:2px 0 8px; }
-  .claude-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-top:1px solid #3a0c40; font-size:13px; }
-  .claude-rank { width:16px; color:#7d5983; font-weight:800; font-size:11px; }
+  .claude-row { cursor:pointer; display:flex; align-items:center; gap:8px; padding:6px 0; border-top:1px solid #3a0c40; font-size:13px; }
+  .claude-rank { width:16px; color:#7d5983; color:#7d5983; font-weight:800; font-size:11px; }
   .claude-team { flex:1; color:#fff; font-weight:600; }
   .claude-pos { color:#a882ac; font-size:10px; font-weight:600; margin-left:4px; }
   .claude-blurb { display:block; font-size:10.5px; color:#c9a8ce; font-weight:400; font-style:italic; margin-top:3px; line-height:1.35; }
@@ -243,7 +243,7 @@
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 46</div>
+    <div class="sync-status" style="color:#7d5983;">build 47</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -2019,20 +2019,20 @@ function renderPickPrompt() {
         <div class="claude-head">Claude\u2019s six</div>
         <div class="claude-sub">Win probability, form, league position and head-to-head</div>`;
       top.forEach((r, i) => {
-        html += `<div class="claude-row">
+        html += `<div class="claude-row copy-team" data-team="${escapeHtml(r.team)}" title="Tap to copy">
           <span class="claude-rank">${i + 1}</span>
           <span class="claude-team">${escapeHtml(r.team)}${r.myPos ? `<span class="claude-pos">(${ordinal(r.myPos)})</span>` : ''}<span class="claude-opp">${r.home ? 'v' : 'at'} ${escapeHtml(r.opp)}${r.oppPos ? ' (' + ordinal(r.oppPos) + ')' : ''}</span>${(() => { const b = pickBlurb(r); return b ? `<span class="claude-blurb">${escapeHtml(b)}</span>` : ''; })()}</span>
           <span class="claude-odds">${toFractional(r.od)}${r.form && r.form.seq ? `<span class="claude-form">${r.form.seq.split('').map(c => `<i class="f-${c}">${c}</i>`).join('')}</span>` : ''}</span>
           <span class="claude-prob">${r.pr}%${r.h2h ? `<span class="claude-h2h">H2H ${r.h2h.mine}-${r.h2h.d}-${r.h2h.theirs}</span>` : ''}</span>
         </div>`;
       });
-      const slipText = top.map((r, i) => `${i + 1}. ${r.team} ${toFractional(r.od)}`).join('\n');
+      const slipText = top.map(r => r.team).join('\n');
       html += `<div class="slip-row">
-        <button class="slip-btn" id="copySlip" data-slip="${escapeHtml(slipText)}">Copy selections</button>
+        <button class="slip-btn" id="copySlip" data-slip="${escapeHtml(slipText)}">Copy all names</button>
         <a class="slip-btn slip-alt" href="https://www.bet365.com" target="_blank" rel="noopener">Bet365</a>
         <a class="slip-btn slip-alt" href="https://m.skybet.com" target="_blank" rel="noopener">Sky Bet</a>
       </div>
-      <div class="slip-note">Bookmakers don\u2019t allow pre-filled slips from outside \u2014 copy, then paste as you search.</div>`;
+      <div class="slip-note">Tap any pick above to copy just that team name \u2014 that\u2019s what a bookmaker search box expects. Bookmakers don\u2019t accept pre-filled slips from outside.</div>`;
       html += `</div>`;
     }
   }
@@ -2042,6 +2042,20 @@ function renderPickPrompt() {
 
   const sel = document.getElementById('pickerWho');
   if (sel) sel.addEventListener('change', () => { pickerWho = sel.value; renderPickPrompt(); });
+  el.querySelectorAll('.copy-team').forEach(row => {
+    row.addEventListener('click', () => {
+      const name = row.getAttribute('data-team');
+      if (!navigator.clipboard) return;
+      navigator.clipboard.writeText(name).then(() => {
+        const tag = row.querySelector('.claude-rank');
+        if (!tag) return;
+        const was = tag.textContent;
+        tag.textContent = '\u2713';
+        setTimeout(() => { tag.textContent = was; }, 1200);
+      }).catch(() => {});
+    });
+  });
+
   const copyBtn = el.querySelector('#copySlip');
   if (copyBtn) {
     copyBtn.addEventListener('click', () => {
