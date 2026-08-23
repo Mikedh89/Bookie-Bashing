@@ -237,7 +237,7 @@
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 42</div>
+    <div class="sync-status" style="color:#7d5983;">build 43</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1429,7 +1429,8 @@ let formFetched = 0;
 
 async function fetchForm(slugs) {
   if (!slugs || !slugs.length) return;
-  if (teamForm && Object.keys(teamForm).length && !cacheIsStale()) return;
+  const havePositions = teamPos && Object.keys(teamPos).length;
+  if (teamForm && Object.keys(teamForm).length && havePositions && !cacheIsStale()) return;
   const form = {};
   const positions = {};
   for (const slug of slugs) {
@@ -1626,13 +1627,19 @@ function leagueName(ev) {
 }
 
 function leagueRank(name) {
-  const n = name.toLowerCase();
-  const uk = n.includes('england') || n.includes('scotland') || n.includes('english')
-          || n.includes('scottish') || n.includes('efl');
-  for (let i = 0; i < LEAGUE_ORDER.length; i++) {
-    if (n.includes(LEAGUE_ORDER[i])) return uk ? i : 20 + i;
-  }
-  return uk ? LEAGUE_ORDER.length : 90;
+  const n = (name || '').toLowerCase();
+  const eng = /\bengland\b|\benglish\b/.test(n);
+  const sco = /\bscotland\b|\bscottish\b/.test(n);
+  const tier =
+      /\bpremier league\b/.test(n)   ? 0 :
+      /\bpremiership\b/.test(n)      ? 0 :
+      /\bchampionship\b/.test(n)     ? 1 :
+      /\bleague (one|1)\b/.test(n)   ? 2 :
+      /\bleague (two|2)\b/.test(n)   ? 3 :
+      /\bnational league\b/.test(n)  ? 4 : 8;
+  if (eng) return tier;          // 0-4  England, top to bottom
+  if (sco) return 10 + tier;     // 10-13 Scotland, top to bottom
+  return 90;
 }
 let oddsBoard = {};        // { week_3: { taken: 1690..., odds: { 'Arsenal': 1.8, ... } } }
 let boardRef = null;
@@ -1836,6 +1843,7 @@ function renderPickPrompt() {
   const mine = myPicksFor(wk, pickerWho);
   const fixtures = upcomingFixtures();
   if (!fixtures.length) fetchLeagueFixtures();
+  else if (!teamPos || !Object.keys(teamPos).length) fetchForm(WANTED_SLUGS);
 
   let html = `<div class="picker">
     <div class="picker-head">\u26BD Get your picks in for match week ${wk}</div>
