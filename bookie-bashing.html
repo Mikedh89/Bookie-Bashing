@@ -237,7 +237,7 @@
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 40</div>
+    <div class="sync-status" style="color:#7d5983;">build 41</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1403,7 +1403,7 @@ let openLeagues = null;   // null = Premier League only
 let leagueFixtures = [];  // fixtures fetched per league slug
 let cacheRef = null;
 let cacheAt = 0;
-const CACHE_VERSION = 38;
+const CACHE_VERSION = 41;
 // The cache holds until next Saturday's games have been played. Fixtures
 // don't change once published, so there's no reason to refetch sooner.
 function cacheIsStale() {
@@ -1472,13 +1472,6 @@ async function fetchForm(slugs) {
     } catch (e) { /* skip */ }
   }
   if (Object.keys(positions).length) teamPos = positions;
-  const ranks = {};
-  Object.keys(tables).forEach(slug => {
-    Object.entries(tables[slug])
-      .sort((a, b) => b[1].pts - a[1].pts || b[1].gd - a[1].gd || a[0].localeCompare(b[0]))
-      .forEach(([team], i) => { ranks[team] = i + 1; });
-  });
-  if (Object.keys(ranks).length) teamPos = ranks;
 
   if (Object.keys(form).length) {
     teamForm = form;
