@@ -240,11 +240,11 @@
     <div class="season-line" id="seasonLine"></div>
     <div class="update-note">Picks in before kickoff &middot; table updated about an hour after full time</div>
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
-    <div class="sync-status" id="oddsStatus"></div>
+    <div class="sync-status" id="oddsStatus">Idle</div>
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
     <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
-    <div class="sync-status" style="color:#7d5983;">build 50</div>
+    <div class="sync-status" style="color:#7d5983;">build 51</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -692,7 +692,7 @@ let liveEvents = [];
 async function syncOddsAndResults() {
   if (Date.now() < rateLimitedUntil) {
     const mins = Math.ceil((rateLimitedUntil - Date.now()) / 60000);
-    setOdds('Odds feed: rate limited \u2014 retrying in ' + mins + ' min', 'bad');
+    setOdds('Odds feed: rate limited \u2014 retry in ' + mins + ' min', 'bad');
     return;
   }
   if (typeof ODDS_API_KEY === 'undefined' || ODDS_API_KEY.indexOf('PASTE') === 0) return;
@@ -816,7 +816,7 @@ async function syncOddsAndResults() {
         matched++;
 
         // odds: fetched per fixture, only if not already set
-        if (!pick.odds && ev.id) {
+        if (!pick.odds && ev.id && manualRefresh) {
           needed++;
           const ml = extractMoneyline(ev) || await oddsForEvent(ev.id);
           if (ml) {
@@ -834,7 +834,9 @@ async function syncOddsAndResults() {
   }
 
   const priced = Object.values(oddsCache).filter(Boolean).length;
-  if (needed === 0) {
+  if (!manualRefresh && needed === 0) {
+    setOdds('Live scores updated \u00b7 tap Refresh for new prices', 'good');
+  } else if (needed === 0) {
     setOdds(`Odds feed: all ${matched} picks priced`, 'good');
   } else if (priced === 0) {
     setOdds('Odds feed: ' + (window.__oddsDebug || 'no prices returned'), 'bad');
@@ -2364,6 +2366,9 @@ function scheduleSync() {
   }, syncIntervalMs());
 }
 
+// clear any message left over from a previous session
+setOdds('');
+setOdds('');
 setTimeout(() => { syncOddsAndResults(); scheduleSync(); }, 2500);
 </script>
 </body>
