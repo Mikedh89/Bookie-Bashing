@@ -243,7 +243,7 @@
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 47</div>
+    <div class="sync-status" style="color:#7d5983;">build 48</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1914,7 +1914,8 @@ function renderPickPrompt() {
       (groups[lg] = groups[lg] || []).push(ev);
     });
     const names = Object.keys(groups).sort((a, b) => leagueRank(a) - leagueRank(b) || a.localeCompare(b));
-    const isOpen = (lg) => openLeagues === null ? leagueRank(lg) === 0 : openLeagues.has(lg);
+    const firstLeague = names[0];
+    const isOpen = (lg) => openLeagues === null ? lg === firstLeague : openLeagues.has(lg);
 
     html += `<div class="picker-list">`;
     names.forEach(lg => {
@@ -2071,9 +2072,8 @@ function renderPickPrompt() {
     h.addEventListener('click', () => {
       const lg = h.getAttribute('data-league');
       if (openLeagues === null) {
-        openLeagues = new Set(Object.keys({}).concat(
-          [...el.querySelectorAll('.lg-head')].map(x => x.getAttribute('data-league'))
-        ).filter(n => leagueRank(n) === 0));
+        const heads = [...el.querySelectorAll('.lg-head')].map(x => x.getAttribute('data-league'));
+        openLeagues = new Set(heads.length ? [heads[0]] : []);
       }
       if (openLeagues.has(lg)) openLeagues.delete(lg); else openLeagues.add(lg);
       renderPickPrompt();
