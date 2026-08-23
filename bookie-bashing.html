@@ -237,7 +237,7 @@
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 43</div>
+    <div class="sync-status" style="color:#7d5983;">build 44</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -2062,8 +2062,7 @@ function renderFollow() {
     .filter(g => PARTICIPANTS.some(p => (g.entries && g.entries[p] || [])
                     .some(pk => pk.result === 'pending')))
     .sort((a, b) => (a.week || 0) - (b.week || 0))[0];
-  if (!gw) gw = picks.find(g => g.week === currentWeek());
-  if (!gw) { el.innerHTML = ''; return; }
+  if (!gw) { el.innerHTML = ''; return; }   // everything settled, nothing live
   const w = gw.week;
 
   // one row per distinct team, noting who backed it
@@ -2078,8 +2077,19 @@ function renderFollow() {
   const teams = Object.keys(byTeam);
   if (!teams.length) { el.innerHTML = ''; return; }
 
+  // if every one of those fixtures has already kicked off and finished, hide
+  const src = leagueFixtures.length ? leagueFixtures : liveEvents;
+  const anyLive = teams.some(t => {
+    const ev = findEvent(src, t);
+    if (!ev || !ev.date) return true;                 // unknown, keep showing
+    const kick = new Date(ev.date).getTime();
+    if (kick > Date.now()) return true;               // still to come
+    return !scoreOf(ev) || (Date.now() - kick) < 3 * 3600 * 1000;   // in play
+  });
+  if (!anyLive) { el.innerHTML = ''; return; }
+
   let html = `<div class="follow">
-    <div class="follow-head">Match week ${w} \u00b7 today\u2019s games</div>
+    <div class="follow-head">Match week ${w} \u00b7 live scores</div>
     <table class="follow-table"><thead><tr>
       <th>Fixture</th><th class="c">Score</th><th class="c">Backed by</th>
     </tr></thead><tbody>`;
