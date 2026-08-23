@@ -141,7 +141,7 @@
   .gw-summary { font-size:11px; color:#a882ac; font-weight:400; }
   .gw-card.collapsed { padding:12px 14px; }
   .gw-title { font-weight: 800; color: #ffffff; }
-  .del-btn { background: none; border: none; color: #a882ac; cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
+  .del-btn { background: none; border: none; color: #6d5273; cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
   .gw-row { display: flex; justify-content: space-between; font-size: 13px; padding: 5px 0; color: #e8d4ea; align-items: center; }
   .badge { padding: 3px 9px; border-radius: 20px; font-weight: 700; margin-left: 6px; }
   .error { color: #ff5c8a; font-size: 13px; margin-bottom: 12px; }
@@ -192,6 +192,8 @@
   .claude-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-top:1px solid #3a0c40; font-size:13px; }
   .claude-rank { width:16px; color:#7d5983; font-weight:800; font-size:11px; }
   .claude-team { flex:1; color:#fff; font-weight:600; }
+  .claude-pos { color:#a882ac; font-size:10px; font-weight:600; margin-left:4px; }
+  .claude-blurb { display:block; font-size:10.5px; color:#c9a8ce; font-weight:400; font-style:italic; margin-top:3px; line-height:1.35; }
   .claude-opp { display:block; font-size:10px; color:#a882ac; font-weight:400; }
   .claude-form { display:block; font-size:9px; letter-spacing:1px; margin-top:2px; }
   .claude-form i { font-style:normal; }
@@ -235,7 +237,7 @@
     <div class="sync-status" id="syncStatus">Connecting&hellip;</div>
     <div class="sync-status" id="oddsStatus"></div>
     <div class="sync-status" id="fixStatus"></div>
-    <div class="sync-status" style="color:#7d5983;">build 38</div>
+    <div class="sync-status" style="color:#7d5983;">build 40</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -993,6 +995,40 @@ const WOODEN_SPOON = '<svg class="spoon-svg" viewBox="0 0 32 32" aria-label="woo
   + '</g></svg>';
 
 // Gold for the leader, silver for second, wooden spoon for last
+// One line explaining why a pick is here
+function pickBlurb(r) {
+  const bits = [];
+  const f = r.form;
+  if (f && f.seq && f.played >= 3) {
+    const w = (f.seq.match(/W/g) || []).length;
+    const l = (f.seq.match(/L/g) || []).length;
+    if (w >= 4) bits.push('in excellent form');
+    else if (w >= 3) bits.push('in good form');
+    else if (l >= 4) bits.push('badly out of form');
+    else if (l >= 3) bits.push('struggling for form');
+    else bits.push('in mixed form');
+  }
+
+  if (r.myPos && r.oppPos) {
+    const gap = r.oppPos - r.myPos;
+    let phrase = 'currently ' + ordinal(r.myPos) + ' playing ' + ordinal(r.oppPos);
+    if (gap >= 10) phrase += ' \u2014 a big gap';
+    else if (gap <= -10) phrase += ' \u2014 up against it';
+    bits.push(phrase);
+  } else if (r.myPos) {
+    bits.push('currently ' + ordinal(r.myPos));
+  }
+
+  if (r.h2h && r.h2h.total >= 3) {
+    if (r.h2h.mine > r.h2h.theirs) bits.push('and have the better recent head-to-head');
+    else if (r.h2h.theirs > r.h2h.mine) bits.push('though the head-to-head favours the opposition');
+  }
+
+  if (!bits.length) return '';
+  const name = r.team.replace(/ (FC|AFC)$/, '');
+  return name + ' are ' + bits.join(', ') + '.';
+}
+
 function rankBadge(i, row, total) {
   const anyPoints = row.points > 0 || row.livePts > 0;
   if (i === 0 && anyPoints) return '<span class="medal">\u{1F3C6}</span>';
@@ -1236,8 +1272,16 @@ function renderHistory() {
     btn.addEventListener('click', () => {
       const id = Number(btn.getAttribute('data-id'));
       const gone = picks.find(gw => gw.id === id);
+      if (!gone) return;
+      const inWeek = PARTICIPANTS.filter(p => (gone.entries && gone.entries[p] || []).length).length;
+      const msg = 'Delete match week ' + gone.week + ' for everyone?\n\n'
+        + inWeek + ' of ' + PARTICIPANTS.length + ' punters have picks in it. '
+        + 'This wipes their selections, results and points for that week, '
+        + 'for all three of you, and cannot be undone.';
+      if (!window.confirm(msg)) return;
+      if (!window.confirm('Last chance \u2014 really delete match week ' + gone.week + '?')) return;
       picks = picks.filter(gw => gw.id !== id);
-      if (gone) deleteWeek(gone.week);
+      deleteWeek(gone.week);
       renderAll();
     });
   });
@@ -1506,8 +1550,7 @@ async function fetchLeagueFixtures() {
       const list = Array.isArray(d) ? d : (d.leagues || d.data || []);
       note = 'leagues:' + list.length;
       slugs = list.filter(wantedLeagueObj).map(l => l.slug || l.id).filter(Boolean);
-      const scots = list.map(l => l.slug || '').filter(sl => sl.indexOf('scot') === 0).slice(0, 8);
-      if (scots.length) window.__scotSlugs = scots.join(' ');
+      // no longer needed now the slugs are confirmed
       if (!slugs.length) slugs = WANTED_SLUGS.slice();
       note += ' matched:' + slugs.length;
       if (!slugs.length && list.length) {
@@ -1540,7 +1583,7 @@ async function fetchLeagueFixtures() {
     const wkNow = nextFreeWeek();
     if (wkNow) setTimeout(() => buildOddsBoard(wkNow, upcomingFixtures().slice(0, 45)), 300);
     setFixStatus('Fixtures: ' + leagueFixtures.length + ' \u00b7 ' + perLeague.join(' ')
-      + (window.__scotSlugs ? ' \u00b7 SCOT SLUGS: ' + window.__scotSlugs : ' \u00b7 no scottish leagues found'), 'good');
+      + ' \u00b7 ' + natDiag(), 'good');
     saveCache();
     fetchForm(slugs);
     renderPickPrompt();
@@ -1718,6 +1761,26 @@ function boardOdds(week, team) {
 
 // Next Saturday's 3pm kickoffs only. Reads the fixture list the sync
 // already fetched - no extra API calls.
+// Why aren't National League games showing? Report what's actually there.
+function natDiag() {
+  const nat = leagueFixtures.filter(e =>
+    /national/i.test((e.league && (e.league.name || e.league.slug)) || ''));
+  if (!nat.length) return 'NAT: none fetched';
+  const sats = nat.filter(e => new Date(e.date).getDay() === 6);
+  const times = {};
+  sats.forEach(e => {
+    const d = new Date(e.date);
+    const k = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    times[k] = (times[k] || 0) + 1;
+  });
+  const top = Object.keys(times).sort((a, b) => times[b] - times[a]).slice(0, 4)
+                .map(k => k + '(' + times[k] + ')').join(' ');
+  const soonest = nat.map(e => new Date(e.date)).filter(d => d > new Date())
+                     .sort((a, b) => a - b)[0];
+  return 'NAT: ' + nat.length + ' fetched, ' + sats.length + ' Sat, times ' + (top || 'none')
+       + (soonest ? ', next ' + soonest.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '');
+}
+
 function upcomingFixtures() {
   const now = Date.now();
   const horizon = now + 8 * 24 * 3600 * 1000;
@@ -1883,13 +1946,20 @@ function renderPickPrompt() {
         const h = h2hFor(team, opp);
         const hp = h ? Math.round((h.mine + h.d * 0.5) / h.total * 100) : null;
 
+        // league standing: how far above the opponent, as a 0-100 figure
+        const myPos = posFor(team), oppPos = posFor(opp);
+        let lp = null;
+        if (myPos && oppPos) lp = Math.max(0, Math.min(100, 50 + (oppPos - myPos) * 3));
+
         // weight what we have; redistribute when something is missing
-        let wSum = 0.6, total = pr * 0.6;
-        if (fp !== null) { total += fp * 0.25; wSum += 0.25; }
-        if (hp !== null) { total += hp * 0.15; wSum += 0.15; }
+        let wSum = 0.55, total = pr * 0.55;
+        if (fp !== null) { total += fp * 0.2; wSum += 0.2; }
+        if (lp !== null) { total += lp * 0.15; wSum += 0.15; }
+        if (hp !== null) { total += hp * 0.1; wSum += 0.1; }
         const score = total / wSum;
 
-        ranked.push({ team, pr, od, score, form: f, h2h: h, opp, home: team === ev.home });
+        ranked.push({ team, pr, od, score, form: f, h2h: h, opp, myPos, oppPos,
+                      home: team === ev.home });
       });
     });
     ranked.sort((a, b) => b.score - a.score);
@@ -1919,11 +1989,11 @@ function renderPickPrompt() {
     if (top.length) {
       html += `<div class="claude-pick">
         <div class="claude-head">Claude\u2019s six</div>
-        <div class="claude-sub">Win probability, recent form and head-to-head</div>`;
+        <div class="claude-sub">Win probability, form, league position and head-to-head</div>`;
       top.forEach((r, i) => {
         html += `<div class="claude-row">
           <span class="claude-rank">${i + 1}</span>
-          <span class="claude-team">${escapeHtml(r.team)}<span class="claude-opp">${r.home ? 'v' : 'at'} ${escapeHtml(r.opp)}</span></span>
+          <span class="claude-team">${escapeHtml(r.team)}${r.myPos ? `<span class="claude-pos">(${ordinal(r.myPos)})</span>` : ''}<span class="claude-opp">${r.home ? 'v' : 'at'} ${escapeHtml(r.opp)}${r.oppPos ? ' (' + ordinal(r.oppPos) + ')' : ''}</span>${(() => { const b = pickBlurb(r); return b ? `<span class="claude-blurb">${escapeHtml(b)}</span>` : ''; })()}</span>
           <span class="claude-odds">${toFractional(r.od)}${r.form && r.form.seq ? `<span class="claude-form">${r.form.seq.split('').map(c => `<i class="f-${c}">${c}</i>`).join('')}</span>` : ''}</span>
           <span class="claude-prob">${r.pr}%${r.h2h ? `<span class="claude-h2h">H2H ${r.h2h.mine}-${r.h2h.d}-${r.h2h.theirs}</span>` : ''}</span>
         </div>`;
