@@ -244,7 +244,7 @@
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
     <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
-    <div class="sync-status" style="color:#7d5983;">build 54</div>
+    <div class="sync-status" style="color:#7d5983;">build 55</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1499,8 +1499,8 @@ let formFetched = 0;
 
 async function fetchForm(slugs) {
   if (!slugs || !slugs.length) return;
-  const havePositions = teamPos && Object.keys(teamPos).length;
-  if (!manualRefresh && teamForm && Object.keys(teamForm).length && havePositions) return;
+  const positionsLookComplete = Object.keys(teamPos || {}).length >= 20;
+  if (!manualRefresh && Object.keys(teamForm || {}).length && positionsLookComplete) return;
   const form = {};
   const positions = {};
   for (const slug of slugs) {
@@ -1544,9 +1544,13 @@ async function fetchForm(slugs) {
         .forEach((team, i) => { positions[team] = i + 1; });
     } catch (e) { /* skip */ }
   }
-  if (Object.keys(positions).length) teamPos = positions;
+  // a fetch that only found a handful of teams must not wipe a good table
+  const gotPositions = Object.keys(positions).length;
+  const havePositions = Object.keys(teamPos || {}).length;
+  if (gotPositions >= 20 || gotPositions >= havePositions) teamPos = positions;
 
-  if (Object.keys(form).length) {
+  const gotForm = Object.keys(form).length;
+  if (gotForm && (gotForm >= 20 || gotForm >= Object.keys(teamForm || {}).length)) {
     teamForm = form;
     setFormStatus('Form: ' + Object.keys(form).length + ' teams \u00b7 ' + Object.keys(teamPos).length + ' ranked', 'good');
     saveCache();
@@ -1915,7 +1919,7 @@ function renderPickPrompt() {
   const mine = myPicksFor(wk, pickerWho);
   const fixtures = upcomingFixtures();
   if (!fixtures.length) fetchLeagueFixtures();
-  else if (!teamPos || !Object.keys(teamPos).length) fetchForm(WANTED_SLUGS);
+  else if (Object.keys(teamPos || {}).length < 20) fetchForm(WANTED_SLUGS);
 
   let html = `<div class="picker">
     <div class="picker-head">\u26BD Get your picks in for match week ${wk}</div>
