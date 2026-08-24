@@ -244,7 +244,7 @@
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
     <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
-    <div class="sync-status" style="color:#7d5983;">build 55</div>
+    <div class="sync-status" style="color:#7d5983;">build 56</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -483,6 +483,11 @@ function initFirebase() {
       const stale = c.v !== CACHE_VERSION;
       if (Array.isArray(c.fixtures) && c.fixtures.length) leagueFixtures = c.fixtures;
       if (c.form) teamForm = c.form;
+      if (c.log && typeof c.log === 'object') {
+        // merge, never replace - the log only ever grows
+        Object.keys(c.log).forEach(k => { if (!resultLog[k]) resultLog[k] = c.log[k]; });
+        rebuildTables();
+      }
 
       if (c.pos) teamPos = c.pos;
       cacheAt = stale ? 0 : (c.fetchedAt || 0);
@@ -1490,7 +1495,8 @@ function cacheIsStale() {
   return (now - cacheAt) > 24 * 3600 * 1000;
 }
 let teamForm = {};
-let teamPos = {};        // { 'Everton': { pts: 9, played: 5, seq: 'WWLDW' } }
+let teamPos = {};
+let resultLog = {};   // 'homeid|awayid|date' -> {league, home, away, h, a}        // { 'Everton': { pts: 9, played: 5, seq: 'WWLDW' } }
 
 // Recent form, derived from settled results in the same leagues using the
 // odds API we already have. API-Football's free tier only serves historical
@@ -1517,6 +1523,11 @@ async function fetchForm(slugs) {
       evs.forEach(ev => {
         const sc = scoreOf(ev);
         if (!sc) return;
+        const key = [ev.home, ev.away, (ev.date || '').slice(0, 10)].join('|');
+        if (!resultLog[key]) {
+          resultLog[key] = { league: slug, home: ev.home, away: ev.away,
+                             h: sc.h, a: sc.a, date: ev.date };
+        }
         [[ev.home, sc.h, sc.a], [ev.away, sc.a, sc.h]].forEach(([team, mine, theirs]) => {
           if (!team) return;
 
@@ -1549,13 +1560,12 @@ async function fetchForm(slugs) {
   const havePositions = Object.keys(teamPos || {}).length;
   if (gotPositions >= 20 || gotPositions >= havePositions) teamPos = positions;
 
-  const gotForm = Object.keys(form).length;
-  if (gotForm && (gotForm >= 20 || gotForm >= Object.keys(teamForm || {}).length)) {
-    teamForm = form;
-    setFormStatus('Form: ' + Object.keys(form).length + ' teams \u00b7 ' + Object.keys(teamPos).length + ' ranked', 'good');
-    saveCache();
-    renderPickPrompt();
-  }
+  rebuildTables();
+  const nPos = Object.keys(teamPos || {}).length;
+  setFormStatus('Form: ' + Object.keys(teamForm || {}).length + ' teams \u00b7 '
+    + nPos + ' ranked \u00b7 ' + Object.keys(resultLog).length + ' results logged', 'good');
+  saveCache();
+  renderPickPrompt();
 }
 
 // head-to-head needs historical fixtures we can't get on a free plan
@@ -1576,7 +1586,44 @@ function saveCache() {
     id: e.id, home: e.home, away: e.away, date: e.date,
     league: { name: (e.league && (e.league.name || e.league.slug)) || '' }
   }));
-  cacheRef.set({ v: CACHE_VERSION, fetchedAt: Date.now(), fixtures: slim, form: teamForm, pos: teamPos }).catch(() => {});
+  cacheRef.set({ v: CACHE_VERSION, fetchedAt: Date.now(), fixtures: slim, form: teamForm, pos: teamPos, log: resultLog }).catch(() => {});
+}
+
+// Tables and form are derived from every result we've ever recorded, so a
+// thin API response can add to them but can never shrink them.
+function rebuildTables() {
+  const tables = {}, form = {};
+  const rows = Object.keys(resultLog).map(k => resultLog[k])
+    .sort((a, b) => new Date(b.date) - new Date(a.date));   // newest first
+
+  rows.forEach(m => {
+    const lg = m.league || 'other';
+    [[m.home, m.h, m.a], [m.away, m.a, m.h]].forEach(([team, mine, theirs]) => {
+      if (!team || mine === undefined || theirs === undefined) return;
+      const tbl = tables[lg] = tables[lg] || {};
+      const row = tbl[team] = tbl[team] || { pts: 0, gd: 0, pl: 0 };
+      row.pl++; row.gd += (mine - theirs);
+      row.pts += mine > theirs ? 3 : mine === theirs ? 1 : 0;
+
+      const f = form[team] = form[team] || { pts: 0, played: 0, seq: '' };
+      if (f.played < 5) {
+        f.played++;
+        if (mine > theirs) { f.pts += 3; f.seq += 'W'; }
+        else if (mine === theirs) { f.seq += 'D'; }
+        else { f.seq += 'L'; }
+      }
+    });
+  });
+
+  const positions = {};
+  Object.keys(tables).forEach(lg => {
+    Object.entries(tables[lg])
+      .sort((a, b) => b[1].pts - a[1].pts || b[1].gd - a[1].gd || a[0].localeCompare(b[0]))
+      .forEach(([team], i) => { positions[team] = i + 1; });
+  });
+
+  if (Object.keys(positions).length) teamPos = positions;
+  if (Object.keys(form).length) teamForm = form;
 }
 
 function posFor(team) {
