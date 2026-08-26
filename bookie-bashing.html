@@ -244,7 +244,7 @@
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
     <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
-    <div class="sync-status" style="color:#7d5983;">build 56</div>
+    <div class="sync-status" style="color:#7d5983;">build 57</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -476,6 +476,7 @@ function initFirebase() {
     boardRef = firebase.database().ref('bookieBashing/oddsBoard');
     cacheRef = firebase.database().ref('bookieBashing/cache');
     cacheRef.on('value', (snap) => {
+      if (Date.now() - ownWriteAt < 4000) return;   // this is our own write echoing back
       const c = snap.val();
       if (!c) return;
       // An older cache is still better than nothing: show it, but mark it
@@ -692,6 +693,26 @@ function outcomeFor(ev, team) {
 }
 
 let rateLimitedUntil = 0;
+let apiCallsThisSession = 0;
+const MAX_CALLS_PER_SESSION = 60;
+
+// Every API request goes through here. It cannot be bypassed.
+async function apiFetch(url) {
+  if (apiCallsThisSession >= MAX_CALLS_PER_SESSION) {
+    throw new Error('session call limit reached');
+  }
+  if (Date.now() < rateLimitedUntil) {
+    throw new Error('rate limited');
+  }
+  apiCallsThisSession++;
+  const r = await fetch(url);
+  if (r.status === 429) {
+    rateLimitedUntil = Date.now() + 3600000;
+    apiCallsThisSession = MAX_CALLS_PER_SESSION;   // stop everything
+    throw new Error('429');
+  }
+  return r;
+}
 let liveEvents = [];
 
 async function syncOddsAndResults() {
@@ -706,7 +727,7 @@ async function syncOddsAndResults() {
   let events = [];
   setOdds('Odds feed: checking\u2026');
   try {
-    const res = await fetch('https://api.odds-api.io/v3/events?sport=football&apiKey=' + encodeURIComponent(ODDS_API_KEY));
+    const res = await apiFetch('https://api.odds-api.io/v3/events?sport=football&apiKey=' + encodeURIComponent(ODDS_API_KEY));
     if (res.status === 429) {
       rateLimitedUntil = Date.now() + 3600000;
       setOdds('Odds feed: hourly limit reached \u2014 retrying in 60 min', 'bad');
@@ -742,7 +763,7 @@ async function syncOddsAndResults() {
   // Ask the API which bookmakers this key can actually use
   async function discoverBooks() {
     try {
-      const r = await fetch('https://api.odds-api.io/v3/bookmakers?apiKey='
+      const r = await apiFetch('https://api.odds-api.io/v3/bookmakers?apiKey='
                           + encodeURIComponent(ODDS_API_KEY));
       if (!r.ok) return;
       const d = await r.json();
@@ -1511,7 +1532,7 @@ async function fetchForm(slugs) {
   const positions = {};
   for (const slug of slugs) {
     try {
-      const r = await fetch('https://api.odds-api.io/v3/events?sport=football&league=' + encodeURIComponent(slug)
+      const r = await apiFetch('https://api.odds-api.io/v3/events?sport=football&league=' + encodeURIComponent(slug)
                           + '&status=settled&apiKey=' + encodeURIComponent(ODDS_API_KEY));
       if (r.status === 429) { rateLimitedUntil = Date.now() + 3600000; break; }
       if (!r.ok) continue;
@@ -1572,8 +1593,11 @@ async function fetchForm(slugs) {
 function h2hFor() { return null; }
 
 // Keep the shared cache small: only what the picker needs
+let ownWriteAt = 0;
+
 function saveCache() {
   if (!cacheRef) return;
+  ownWriteAt = Date.now();
   // keep the next 10 days only - never truncate by count, or whole
   // leagues get dropped depending on fetch order
   const now = Date.now(), horizon = now + 10 * 24 * 3600 * 1000;
@@ -1661,7 +1685,7 @@ async function fetchLeagueFixtures() {
   let slugs = [];
   let note = '';
   try {
-    const r = await fetch('https://api.odds-api.io/v3/leagues?sport=football&apiKey='
+    const r = await apiFetch('https://api.odds-api.io/v3/leagues?sport=football&apiKey='
                         + encodeURIComponent(ODDS_API_KEY));
     if (r.status === 429) { rateLimitedUntil = Date.now() + 3600000; setFixStatus('Rate limited', 'bad'); return; }
     if (!r.ok) { note = 'leagues HTTP ' + r.status; }
@@ -1687,7 +1711,7 @@ async function fetchLeagueFixtures() {
   const perLeague = [];
   for (const slug of slugs) {
     try {
-      const r = await fetch('https://api.odds-api.io/v3/events?sport=football&league='
+      const r = await apiFetch('https://api.odds-api.io/v3/events?sport=football&league='
                           + encodeURIComponent(slug) + '&status=pending'
                           + '&apiKey=' + encodeURIComponent(ODDS_API_KEY));
       if (r.status === 429) { rateLimitedUntil = Date.now() + 3600000; break; }
@@ -1794,7 +1818,7 @@ async function buildOddsBoard(week, fixtures) {
     if (!ev.id) continue;
     calls++;
     try {
-      const r = await fetch('https://api.odds-api.io/v3/odds?eventId=' + encodeURIComponent(ev.id)
+      const r = await apiFetch('https://api.odds-api.io/v3/odds?eventId=' + encodeURIComponent(ev.id)
                           + '&bookmakers=Bet365,Unibet&apiKey=' + encodeURIComponent(ODDS_API_KEY));
       if (r.status === 429) { rateLimitedUntil = Date.now() + 3600000; break; }
       if (!r.ok) continue;
@@ -1965,8 +1989,8 @@ function renderPickPrompt() {
 
   const mine = myPicksFor(wk, pickerWho);
   const fixtures = upcomingFixtures();
-  if (!fixtures.length) fetchLeagueFixtures();
-  else if (Object.keys(teamPos || {}).length < 20) fetchForm(WANTED_SLUGS);
+
+
 
   let html = `<div class="picker">
     <div class="picker-head">\u26BD Get your picks in for match week ${wk}</div>
