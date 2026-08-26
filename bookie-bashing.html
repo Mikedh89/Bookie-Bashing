@@ -244,7 +244,7 @@
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
     <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
-    <div class="sync-status" style="color:#7d5983;">build 57</div>
+    <div class="sync-status" style="color:#7d5983;">build 58</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1541,6 +1541,18 @@ async function fetchForm(slugs) {
       evs.sort((a, b) => new Date(b.date) - new Date(a.date));
 
       const table = {};   // full-season table for this league
+      if (!window.__settledSample && evs.length) {
+        const e0 = evs[0];
+        window.__settledSample = 'keys:' + Object.keys(e0).slice(0, 12).join(',');
+        ['score','scores','result','ss','ft','status','home_score','away_score']
+          .forEach(k => {
+            if (e0[k] !== undefined) {
+              const v = e0[k];
+              window.__settledSample += ' | ' + k + '=' +
+                (typeof v === 'object' ? JSON.stringify(v).slice(0, 60) : String(v).slice(0, 30));
+            }
+          });
+      }
       evs.forEach(ev => {
         const sc = scoreOf(ev);
         if (!sc) return;
@@ -1583,8 +1595,12 @@ async function fetchForm(slugs) {
 
   rebuildTables();
   const nPos = Object.keys(teamPos || {}).length;
-  setFormStatus('Form: ' + Object.keys(teamForm || {}).length + ' teams \u00b7 '
-    + nPos + ' ranked \u00b7 ' + Object.keys(resultLog).length + ' results logged', 'good');
+  const logged = Object.keys(resultLog).length;
+  setFormStatus(logged < 10 && window.__settledSample
+    ? 'SETTLED SHAPE \u2014 ' + window.__settledSample
+    : 'Form: ' + Object.keys(teamForm || {}).length + ' teams \u00b7 '
+      + nPos + ' ranked \u00b7 ' + logged + ' results logged',
+    logged < 10 ? 'bad' : 'good');
   saveCache();
   renderPickPrompt();
 }
