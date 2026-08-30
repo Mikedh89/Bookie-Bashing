@@ -244,7 +244,7 @@
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
     <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
-    <div class="sync-status" style="color:#7d5983;">build 58</div>
+    <div class="sync-status" style="color:#7d5983;">build 61</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1451,11 +1451,19 @@ function currentFixtureFor(team) {
   const now = Date.now();
   const withT = src.map(e => ({ e, t: new Date(e.date).getTime() }))
                    .filter(x => !isNaN(x.t));
-  // in play right now?
+  // 1. a game happening right now
   const live = withT.filter(x => x.t <= now && now - x.t < 3.5 * 3600 * 1000)
                     .sort((a, b) => b.t - a.t)[0];
   if (live) return live.e;
-  // otherwise the next one to come
+
+  // 2. a game played in the last few days - this is the one a pending pick
+  //    refers to, so results can settle even after the final whistle
+  const justPlayed = withT
+    .filter(x => x.t < now && now - x.t < 4 * 24 * 3600 * 1000)
+    .sort((a, b) => b.t - a.t)[0];
+  if (justPlayed) return justPlayed.e;
+
+  // 3. otherwise the next one to come
   const next = withT.filter(x => x.t > now).sort((a, b) => a.t - b.t)[0];
   return next ? next.e : null;
 }
@@ -1469,12 +1477,18 @@ function findEvent(list, team) {
 
 // Best-effort score read - the free tier may not expose these
 function scoreOf(ev) {
-  const sc = ev && (ev.score || ev.scores || ev.result);
+  const sc = ev && (ev.scores || ev.score || ev.result);
   if (!sc) return null;
-  const h = sc.home ?? sc.homeScore ?? (sc.ft && sc.ft.home);
-  const a = sc.away ?? sc.awayScore ?? (sc.ft && sc.ft.away);
+  // documented shape: scores.home/away, with scores.periods.ft the 90-min result
+  const ft = sc.periods && (sc.periods.ft || sc.periods.fulltime);
+  const h = (ft && ft.home !== undefined ? ft.home : undefined)
+         ?? sc.home ?? sc.homeScore ?? (sc.ft && sc.ft.home);
+  const a = (ft && ft.away !== undefined ? ft.away : undefined)
+         ?? sc.away ?? sc.awayScore ?? (sc.ft && sc.ft.away);
   if (h === undefined || a === undefined || h === null || a === null) return null;
-  return { h: h, a: a };
+  const hn = Number(h), an = Number(a);
+  if (isNaN(hn) || isNaN(an)) return null;
+  return { h: hn, a: an };
 }
 
 function kickoffOf(ev) {
@@ -1517,6 +1531,7 @@ function cacheIsStale() {
 }
 let teamForm = {};
 let teamPos = {};
+let settledStatus = null;
 let resultLog = {};   // 'homeid|awayid|date' -> {league, home, away, h, a}        // { 'Everton': { pts: 9, played: 5, seq: 'WWLDW' } }
 
 // Recent form, derived from settled results in the same leagues using the
@@ -1532,12 +1547,30 @@ async function fetchForm(slugs) {
   const positions = {};
   for (const slug of slugs) {
     try {
-      const r = await apiFetch('https://api.odds-api.io/v3/events?sport=football&league=' + encodeURIComponent(slug)
-                          + '&status=settled&apiKey=' + encodeURIComponent(ODDS_API_KEY));
-      if (r.status === 429) { rateLimitedUntil = Date.now() + 3600000; break; }
-      if (!r.ok) continue;
-      const d = await r.json();
-      const evs = (Array.isArray(d) ? d : (d.events || d.data || [])).filter(isSeniorMens);
+      // the right value for "finished" isn't documented - try the likely ones
+      let evs = [];
+      const statuses = ['settled'];   // documented status values: pending/live/settled/cancelled
+      for (const st of statuses) {
+        const url = 'https://api.odds-api.io/v3/events?sport=football&league='
+                  + encodeURIComponent(slug)
+                  + (st ? '&status=' + st : '')
+                  + '&apiKey=' + encodeURIComponent(ODDS_API_KEY);
+        let r;
+        try { r = await apiFetch(url); } catch (e) { break; }
+        if (!r.ok) continue;
+        const d = await r.json();
+        const list = (Array.isArray(d) ? d : (d.events || d.data || [])).filter(isSeniorMens);
+        // only accept a status that returns games already played, with scores
+        const played = list.filter(e => {
+          const t = new Date(e.date).getTime();
+          return !isNaN(t) && t < Date.now() && scoreOf(e);
+        });
+        if (played.length) { evs = played; settledStatus = st; break; }
+        if (!settledStatus && list.length && !window.__settledSample) {
+          window.__settledSample = 'status=' + (st || 'none') + ' returned ' + list.length
+            + ', keys:' + Object.keys(list[0]).slice(0, 10).join(',');
+        }
+      }
       evs.sort((a, b) => new Date(b.date) - new Date(a.date));
 
       const table = {};   // full-season table for this league
@@ -1596,8 +1629,8 @@ async function fetchForm(slugs) {
   rebuildTables();
   const nPos = Object.keys(teamPos || {}).length;
   const logged = Object.keys(resultLog).length;
-  setFormStatus(logged < 10 && window.__settledSample
-    ? 'SETTLED SHAPE \u2014 ' + window.__settledSample
+  setFormStatus(logged < 10
+    ? 'Tables build up as results come in \u00b7 ' + logged + ' logged so far'
     : 'Form: ' + Object.keys(teamForm || {}).length + ' teams \u00b7 '
       + nPos + ' ranked \u00b7 ' + logged + ' results logged',
     logged < 10 ? 'bad' : 'good');
