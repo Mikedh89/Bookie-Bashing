@@ -222,6 +222,14 @@
   .follow-score { font-size:18px; font-weight:900; white-space:nowrap; }
   .flashscore-btn { display:block; text-align:center; margin-top:12px; padding:11px; background:transparent; color:#04f5ff; border:1px solid #55105c; border-radius:8px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; text-decoration:none; }
   .follow-note { font-size:11px; color:#a882ac; margin-top:10px; font-style:italic; }
+  .twat-card { background:linear-gradient(135deg,#3a0a3f,#2b002e); border:1px solid #7d1f8a; border-radius:12px; padding:16px 18px; margin-bottom:20px; }
+  .twat-head { font-size:12px; letter-spacing:1px; text-transform:uppercase; color:#e9c46a; font-weight:800; margin-bottom:10px; }
+  .twat-body { display:flex; gap:12px; align-items:flex-start; }
+  .twat-face { width:46px; height:46px; border-radius:50%; border:2px solid #ff5c8a; flex-shrink:0; }
+  .twat-name { font-size:16px; font-weight:800; color:#ff5c8a; margin-bottom:4px; }
+  .twat-line { font-size:13px; color:#e8d4ea; line-height:1.45; }
+  .twat-note { font-size:13px; color:#fff; line-height:1.45; margin-top:8px; font-style:italic; border-left:2px solid #7d1f8a; padding-left:10px; }
+  .twat-edit { margin-top:12px; background:none; border:1px solid #55105c; color:#a882ac; border-radius:6px; padding:6px 12px; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; font-family:inherit; cursor:pointer; }
   .refresh-row { display:flex; justify-content:center; margin: 4px 0 18px; }
   .refresh-btn { background:transparent; color:#04f5ff; border:1px solid #55105c; border-radius:8px;
     padding:9px 16px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;
@@ -244,7 +252,7 @@
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
     <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
-    <div class="sync-status" style="color:#7d5983;">build 61</div>
+    <div class="sync-status" style="color:#7d5983;">build 62</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -252,6 +260,7 @@
   <div class="refresh-row">
     <button class="refresh-btn" id="refreshBtn">Refresh odds &amp; fixtures</button>
   </div>
+  <div id="twat"></div>
   <div id="pickPrompt"></div>
 
   <div id="kittySection"></div>
@@ -475,6 +484,8 @@ function initFirebase() {
     seasonRef = firebase.database().ref('bookieBashing/weeks');
     boardRef = firebase.database().ref('bookieBashing/oddsBoard');
     cacheRef = firebase.database().ref('bookieBashing/cache');
+    twatRef = firebase.database().ref('bookieBashing/twat');
+    twatRef.on('value', (snap) => { twatNotes = snap.val() || {}; renderTwat(); });
     cacheRef.on('value', (snap) => {
       if (Date.now() - ownWriteAt < 4000) return;   // this is our own write echoing back
       const c = snap.val();
@@ -1421,7 +1432,7 @@ function renderHistory() {
 
 function renderAll() {
   const steps = [['table', renderTable], ['picker', renderPickPrompt], ['kitty', renderKitty],
-                 ['history', renderHistory], ['season', renderSeasonLine], ['live', renderFollow]];
+                 ['twat', renderTwat], ['history', renderHistory], ['season', renderSeasonLine], ['live', renderFollow]];
   steps.forEach(([name, fn]) => {
     try { if (typeof fn === 'function') fn(); }
     catch (e) { showErr(name, e); }
@@ -2028,6 +2039,81 @@ function togglePick(week, person, team) {
   paymentsFor(gw);
   saveWeek(gw);
   renderAll();
+}
+
+// ---- Twat of the week -------------------------------------------------
+let twatNotes = {};        // { week: 'custom line' }
+let twatRef = null;
+
+function lastSettledWeek() {
+  const done = picks.filter(gw => PARTICIPANTS.some(p =>
+    ((gw.entries && gw.entries[p]) || []).some(pk => pk.result && pk.result !== 'pending')));
+  return done.sort((a, b) => (b.week || 0) - (a.week || 0))[0] || null;
+}
+
+function weekSummary(gw) {
+  return PARTICIPANTS.map(p => {
+    const list = ((gw.entries && gw.entries[p]) || []);
+    const wins = list.filter(x => x.result === 'win').length;
+    const settled = list.filter(x => x.result && x.result !== 'pending');
+    const losers = list.filter(x => x.result === 'lose' || x.result === 'draw');
+    return { name: p, wins, played: settled.length, pts: wins * 3, losers };
+  });
+}
+
+function renderTwat() {
+  const el = document.getElementById('twat');
+  if (!el) return;
+  const gw = lastSettledWeek();
+  if (!gw) { el.innerHTML = ''; return; }
+
+  const rows = weekSummary(gw);
+  const anySettled = rows.some(r => r.played);
+  if (!anySettled) { el.innerHTML = ''; return; }
+
+  const worst = rows.slice().sort((a, b) => a.wins - b.wins || a.played - b.played)[0];
+  const best = rows.slice().sort((a, b) => b.wins - a.wins)[0];
+  const allSame = rows.every(r => r.wins === rows[0].wins);
+
+  let line;
+  if (allSame) {
+    line = 'Nothing between you this week \u2014 ' + rows[0].wins + ' winner'
+         + (rows[0].wins === 1 ? '' : 's') + ' each. No twat identified. Yet.';
+  } else {
+    const blame = worst.losers.map(x => x.team).join(' and ');
+    line = worst.name + ' takes it';
+    line += worst.wins === 0 ? ' with a clean sweep of nothing.' : ' with just ' + worst.wins + ' winner.';
+    if (blame) line += ' ' + blame + ' did the damage.';
+    if (best.wins > worst.wins) {
+      line += ' ' + best.name + ' managed ' + best.wins + ', so there are no excuses.';
+    }
+  }
+
+  const note = twatNotes['week_' + gw.week] || '';
+
+
+  el.innerHTML = `<div class="twat-card">
+    <div class="twat-head">\u{1F3C5} Twat of the week \u00b7 match week ${gw.week}</div>
+    <div class="twat-body">
+      ${allSame ? '' : badgeImg(worst.name, 46)}
+      <div>
+        <div class="twat-name">${allSame ? 'Nobody' : escapeHtml(worst.name)}</div>
+        <div class="twat-line">${escapeHtml(line)}</div>
+        ${note ? `<div class="twat-note">${escapeHtml(note)}</div>` : ''}
+      </div>
+    </div>
+    <button class="twat-edit" id="twatEdit">${note ? 'Edit the write-up' : 'Add your own line'}</button>
+  </div>`;
+
+  const btn = document.getElementById('twatEdit');
+  if (btn) btn.addEventListener('click', () => {
+    const cur = twatNotes['week_' + gw.week] || '';
+    const next = window.prompt('Write-up for match week ' + gw.week + ':', cur);
+    if (next === null) return;
+    twatNotes['week_' + gw.week] = next.trim();
+    if (twatRef) twatRef.child('week_' + gw.week).set(next.trim()).catch(() => {});
+    renderTwat();
+  });
 }
 
 function renderPickPrompt() {
