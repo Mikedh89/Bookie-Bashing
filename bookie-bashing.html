@@ -228,8 +228,13 @@
   .twat-face { width:46px; height:46px; border-radius:50%; border:2px solid #ff5c8a; flex-shrink:0; }
   .twat-name { font-size:16px; font-weight:800; color:#ff5c8a; margin-bottom:4px; }
   .twat-line { font-size:13px; color:#e8d4ea; line-height:1.45; }
-  .twat-note { font-size:13px; color:#fff; line-height:1.45; margin-top:8px; font-style:italic; border-left:2px solid #7d1f8a; padding-left:10px; }
-  .twat-edit { margin-top:12px; background:none; border:1px solid #55105c; color:#a882ac; border-radius:6px; padding:6px 12px; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; font-family:inherit; cursor:pointer; }
+  .twat-notes { margin-top:10px; display:flex; flex-direction:column; gap:9px; }
+  .twat-note { display:flex; gap:8px; align-items:flex-start; border-left:2px solid #7d1f8a; padding-left:10px; }
+  .twat-note-who { font-size:10px; text-transform:uppercase; letter-spacing:0.6px; color:#c79ccb; font-weight:800; margin-bottom:2px; }
+  .twat-note-text { font-size:13px; color:#fff; line-height:1.45; font-style:italic; }
+  .twat-controls { margin-top:12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .twat-who { background:#2b002e; border:1px solid #55105c; color:#e8d4ea; border-radius:6px; padding:6px 10px; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; font-family:inherit; cursor:pointer; }
+  .twat-edit { background:none; border:1px solid #55105c; color:#a882ac; border-radius:6px; padding:6px 12px; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; font-family:inherit; cursor:pointer; }
   .refresh-row { display:flex; justify-content:center; margin: 4px 0 18px; }
   .refresh-btn { background:transparent; color:#04f5ff; border:1px solid #55105c; border-radius:8px;
     padding:9px 16px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;
@@ -252,7 +257,7 @@
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
     <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
-    <div class="sync-status" style="color:#7d5983;">build 62</div>
+    <div class="sync-status" style="color:#7d5983;">build 63</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -2042,8 +2047,40 @@ function togglePick(week, person, team) {
 }
 
 // ---- Twat of the week -------------------------------------------------
-let twatNotes = {};        // { week: 'custom line' }
+let twatNotes = {};        // { week_N: { personKey: 'line' } }  legacy: { week_N: 'line' }
 let twatRef = null;
+let twatWho = null;        // who is writing, remembered on this device
+
+function personKey(name) {
+  return String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function personFromKey(key) {
+  return PARTICIPANTS.find(p => personKey(p) === key) || null;
+}
+
+// Notes for a week, normalised. Older weeks stored a single shared string;
+// that still shows, just without a name against it.
+function weekNotes(week) {
+  const raw = twatNotes['week_' + week];
+  if (!raw) return {};
+  if (typeof raw === 'string') return raw.trim() ? { legacy: raw.trim() } : {};
+  return Object.assign({}, raw);
+}
+
+function twatMe() {
+  if (twatWho && PARTICIPANTS.indexOf(twatWho) !== -1) return twatWho;
+  let saved = null;
+  try { saved = localStorage.getItem('bb_who'); } catch (e) {}
+  twatWho = (saved && PARTICIPANTS.indexOf(saved) !== -1) ? saved : (pickerWho || PARTICIPANTS[0]);
+  return twatWho;
+}
+
+function setTwatMe(name) {
+  twatWho = name;
+  pickerWho = name;
+  try { localStorage.setItem('bb_who', name); } catch (e) {}
+}
 
 function lastSettledWeek() {
   const done = picks.filter(gw => PARTICIPANTS.some(p =>
@@ -2089,8 +2126,26 @@ function renderTwat() {
     }
   }
 
-  const note = twatNotes['week_' + gw.week] || '';
+  const notes = weekNotes(gw.week);
+  const me = twatMe();
+  const meKey = personKey(me);
 
+  // Everyone gets their own line. Order them the way the table is ordered,
+  // with any pre-existing unsigned note last.
+  const order = PARTICIPANTS.map(personKey).concat(['legacy']);
+  const notesHtml = Object.keys(notes)
+    .filter(k => (notes[k] || '').trim())
+    .sort((a, b) => order.indexOf(a) - order.indexOf(b))
+    .map(k => {
+      const who = personFromKey(k);
+      return `<div class="twat-note">
+        ${who ? badgeImg(who, 22) : ''}
+        <div>
+          <div class="twat-note-who">${who ? escapeHtml(who) : 'The syndicate'}</div>
+          <div class="twat-note-text">${escapeHtml(notes[k])}</div>
+        </div>
+      </div>`;
+    }).join('');
 
   el.innerHTML = `<div class="twat-card">
     <div class="twat-head">\u{1F3C5} Twat of the week \u00b7 match week ${gw.week}</div>
@@ -2099,19 +2154,34 @@ function renderTwat() {
       <div>
         <div class="twat-name">${allSame ? 'Nobody' : escapeHtml(worst.name)}</div>
         <div class="twat-line">${escapeHtml(line)}</div>
-        ${note ? `<div class="twat-note">${escapeHtml(note)}</div>` : ''}
+        ${notesHtml ? `<div class="twat-notes">${notesHtml}</div>` : ''}
       </div>
     </div>
-    <button class="twat-edit" id="twatEdit">${note ? 'Edit the write-up' : 'Add your own line'}</button>
+    <div class="twat-controls">
+      <select class="twat-who" id="twatWho" aria-label="Who are you?">${PARTICIPANTS.map(p =>
+        `<option value="${escapeHtml(p)}" ${p === me ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}</select>
+      <button class="twat-edit" id="twatEdit">${(notes[meKey] || '').trim() ? 'Edit my line' : 'Add my line'}</button>
+    </div>
   </div>`;
+
+  const sel = document.getElementById('twatWho');
+  if (sel) sel.addEventListener('change', () => {
+    setTwatMe(sel.value);
+    renderTwat();
+    if (typeof renderPickPrompt === 'function') renderPickPrompt();
+  });
 
   const btn = document.getElementById('twatEdit');
   if (btn) btn.addEventListener('click', () => {
-    const cur = twatNotes['week_' + gw.week] || '';
-    const next = window.prompt('Write-up for match week ' + gw.week + ':', cur);
+    const key = personKey(twatMe());
+    const current = weekNotes(gw.week);
+    const next = window.prompt('Your line for match week ' + gw.week + ' (leave it blank to remove yours):', current[key] || '');
     if (next === null) return;
-    twatNotes['week_' + gw.week] = next.trim();
-    if (twatRef) twatRef.child('week_' + gw.week).set(next.trim()).catch(() => {});
+    if (next.trim()) current[key] = next.trim(); else delete current[key];
+    twatNotes['week_' + gw.week] = current;
+    // Write the whole week in one go so nobody's line gets clobbered.
+    if (twatRef) twatRef.child('week_' + gw.week)
+      .set(Object.keys(current).length ? current : null).catch(() => {});
     renderTwat();
   });
 }
