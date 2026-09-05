@@ -257,7 +257,7 @@
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
     <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
-    <div class="sync-status" style="color:#7d5983;">build 63</div>
+    <div class="sync-status" style="color:#7d5983;">build 64</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -2088,7 +2088,10 @@ function lastSettledWeek() {
   return done.sort((a, b) => (b.week || 0) - (a.week || 0))[0] || null;
 }
 
-function weekSummary(gw) {
+// Named twatWeekRows, NOT weekSummary: renderHistory already has its own
+// weekSummary() returning the collapsed "1Hit 0 - Mike 3" string, and a second
+// declaration with the same name silently replaces it.
+function twatWeekRows(gw) {
   return PARTICIPANTS.map(p => {
     const list = ((gw.entries && gw.entries[p]) || []);
     const wins = list.filter(x => x.result === 'win').length;
@@ -2104,7 +2107,7 @@ function renderTwat() {
   const gw = lastSettledWeek();
   if (!gw) { el.innerHTML = ''; return; }
 
-  const rows = weekSummary(gw);
+  const rows = twatWeekRows(gw);
   const anySettled = rows.some(r => r.played);
   if (!anySettled) { el.innerHTML = ''; return; }
 
