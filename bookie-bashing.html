@@ -257,7 +257,7 @@
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
     <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
-    <div class="sync-status" style="color:#7d5983;">build 68</div>
+    <div class="sync-status" style="color:#7d5983;">build 69</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -471,6 +471,71 @@ function setStatus(text, tone) {
   el.style.color = tone === 'bad' ? '#ff5c8a' : tone === 'good' ? '#00ff85' : '#a882ac';
 }
 
+// ---- One-off backfill: weeks 6 and 7 -----------------------------------
+// The odds feed only carries UPCOMING fixtures, so matches already played can
+// never be settled from it. These twelve results were looked up by hand from
+// full-time results for 12 and 19 September 2026. Runs once, flags itself as
+// done in Firebase so no other phone repeats it, and only ever fills picks
+// still on "pending" - anything set by hand wins.
+const BACKFILL_ID = 'wk6-7-results-sep-2026';
+const BACKFILL = {
+  6: {   // Saturday 12 September
+    'Sheffield Wednesday': 'draw',   // 0-0 Wigan
+    'Walsall': 'draw',               // 0-0 Rochdale
+    'Crystal Palace': 'lose',        // 2-3 Ipswich
+    'Liverpool': 'draw',             // 0-0 Fulham
+    'Stockport County': 'lose',      // 3-4 Leicester
+    'Barnet': 'win'                  // 2-1 Accrington
+  },
+  7: {   // Friday 18 / Saturday 19 September
+    'Grimsby Town': 'win',           // 2-0 Crawley
+    'Queens Park Rangers': 'draw',   // 2-2 Preston
+    'Reading': 'win',                // 2-0 Notts County
+    'Everton': 'win',                // 1-0 Ipswich
+    'Arsenal': 'lose',               // 0-3 at Brighton
+    'Southampton': 'lose'            // 1-2 at Wrexham
+  }
+};
+
+// Loose team key so "Arsenal FC" and "Arsenal" land on the same entry.
+function bfKey(name) {
+  return String(name).toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\b(fc|afc)\b/g, ' ')
+    .replace(/\s+/g, '');
+}
+
+let backfillTried = false;
+
+function runBackfill() {
+  if (backfillTried || !dbReady || !seasonRef || typeof firebase === 'undefined') return;
+  backfillTried = true;
+  const flagRef = firebase.database().ref('bookieBashing/migrations/' + BACKFILL_ID);
+  flagRef.once('value').then(snap => {
+    if (snap.val()) return;              // somebody's device already did it
+    let changed = 0;
+    Object.keys(BACKFILL).forEach(wk => {
+      const gw = picks.find(g => String(g.week) === String(wk));
+      if (!gw) return;
+      const want = {};
+      Object.keys(BACKFILL[wk]).forEach(t => { want[bfKey(t)] = BACKFILL[wk][t]; });
+      let touched = false;
+      PARTICIPANTS.forEach(p => ((gw.entries && gw.entries[p]) || []).forEach(pk => {
+        const r = want[bfKey(pk.team)];
+        if (r && (!pk.result || pk.result === 'pending')) {
+          pk.result = r; touched = true; changed++;
+        }
+      }));
+      if (touched) saveWeek(gw);
+    });
+    flagRef.set({ at: Date.now(), filled: changed });
+    if (changed) {
+      setStatus('Filled in ' + changed + ' results for weeks 6 and 7', 'good');
+      renderAll();
+    }
+  }).catch(() => {});
+}
+
 function initFirebase() {
   if (typeof FIREBASE_CONFIG === 'undefined' || !FIREBASE_CONFIG.databaseURL || FIREBASE_CONFIG.databaseURL.indexOf('PASTE') === 0) {
     setStatus('Not connected \u2014 add your Firebase config to share this league', 'bad');
@@ -530,6 +595,7 @@ function initFirebase() {
       }
       setStatus('Live \u2014 shared with the syndicate', 'good');
       renderAll();
+      runBackfill();
     }, (err) => {
       setStatus('Connection problem \u2014 changes may not save', 'bad');
       if (!picks.length) { picks = [SEED_WEEK_1]; renderAll(); }
