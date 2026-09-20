@@ -257,7 +257,7 @@
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
     <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
-    <div class="sync-status" style="color:#7d5983;">build 66</div>
+    <div class="sync-status" style="color:#7d5983;">build 68</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -698,10 +698,25 @@ function outcomeFor(ev, team) {
   const h = parseInt(sc.home ?? sc.homeScore ?? sc.ft?.home, 10);
   const a = parseInt(sc.away ?? sc.awayScore ?? sc.ft?.away, 10);
   if (isNaN(h) || isNaN(a)) return null;
-  const status = String(ev.status || ev.state || '').toLowerCase();
-  const finished = !status || status.includes('ft') || status.includes('final')
-                 || status.includes('finish') || status.includes('end');
+  // A result is only taken on positive evidence that the match finished.
+  // This used to read `!status || ...`, i.e. "no status means it's done",
+  // so every unplayed fixture the feed pre-fills as 0-0 settled as a draw.
+  const rawStatus = ev.status || ev.state || ev.timeStatus || ev.phase;
+  const status = String(
+    (rawStatus && typeof rawStatus === 'object')
+      ? (rawStatus.type && (rawStatus.type.name || rawStatus.type.description)) || rawStatus.name || ''
+      : (rawStatus || '')
+  ).toLowerCase();
+  const completedFlag = ev.completed === true || ev.finished === true
+    || !!(rawStatus && typeof rawStatus === 'object' && rawStatus.type && rawStatus.type.completed === true);
+  const finished = completedFlag
+    || /\bft\b|\baet\b|full.?time|final|finish|ended|complete/.test(status);
   if (!finished) return null;
+
+  // Belt and braces: if kickoff was under 100 minutes ago the match cannot
+  // have a trustworthy full-time score, whatever the feed claims.
+  const ko = new Date(ev.date || ev.commence_time || ev.kickoff || 0).getTime();
+  if (!isNaN(ko) && ko > 0 && ko > Date.now() - 100 * 60 * 1000) return null;
   const backedHome = teamsMatch(team, ev.home);
   if (h === a) return 'draw';
   const homeWon = h > a;
@@ -853,7 +868,7 @@ async function syncOddsAndResults() {
       const list = (gw.entries && gw.entries[person]) || [];
       for (const pick of list) {
         wanted++;
-        const ev = findEvent(events, pick.team);
+        const ev = findEventForWeek(events, pick.team, gw);
         if (!ev) continue;
         matched++;
 
@@ -1314,6 +1329,7 @@ function renderHistory() {
         <div class="gw-title gw-toggle" data-week="${gw.week}">
           <span class="chev">${open ? '\u25BE' : '\u25B8'}</span> Match week ${gw.week}${locked ? ` <span class="lock-note">&middot; \u{1F512} ${lockMessage(gw)}</span>` : hasPending ? ' <span style="color:#a882ac; font-weight:400; font-size:11px;">&middot; awaiting results</span>' : ''}${open ? '' : ` <span class="gw-summary">&middot; ${weekSummary(gw)}</span>`}
         </div>
+        <button class="del-btn" data-resetgw="${gw.id}" style="color:#a882ac;">Reset results</button>
         <button class="del-btn" data-id="${gw.id}">Delete</button>
       </div>`;
     if (open) {
@@ -1388,6 +1404,19 @@ function renderHistory() {
       renderAll();
     });
   });
+  // Puts every pick in a week back to Pending without touching the picks
+  // themselves, so a week settled from bad feed data can be re-done.
+  document.querySelectorAll('[data-resetgw]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const gw = picks.find(g => String(g.id) === btn.getAttribute('data-resetgw'));
+      if (!gw) return;
+      if (!window.confirm('Put every result in match week ' + gw.week + ' back to Pending?\n\nPicks and stakes are left alone.')) return;
+      PARTICIPANTS.forEach(p => ((gw.entries && gw.entries[p]) || []).forEach(pk => { pk.result = 'pending'; }));
+      saveWeek(gw);
+      renderAll();
+    });
+  });
+
   document.querySelectorAll('.inline-result-select').forEach(sel => {
     sel.addEventListener('change', () => {
       const gwId = Number(sel.getAttribute('data-gwid'));
@@ -1496,6 +1525,32 @@ function findEvent(list, team) {
   let hit = list.find(e => normaliseTeam(e.home) === t || normaliseTeam(e.away) === t);
   if (hit) return hit;
   return list.find(e => teamsMatch(team, e.home) || teamsMatch(team, e.away));
+}
+
+// findEvent matches on team name alone, so a pick from three weeks ago will
+// happily match that team's NEXT fixture and get settled from the wrong game.
+// For settling we want the fixture closest to that match week's own Saturday.
+function findEventForWeek(list, team, gw) {
+  const t = normaliseTeam(team);
+  const hits = list.filter(e =>
+    normaliseTeam(e.home) === t || normaliseTeam(e.away) === t
+    || teamsMatch(team, e.home) || teamsMatch(team, e.away));
+  if (!hits.length) return null;
+
+  // lockUntil is 5pm on that week's Saturday, stored when the week was created.
+  const anchor = (gw && gw.lockUntil) ? gw.lockUntil : null;
+  if (!anchor) return hits[0];
+
+  let best = null, bestGap = Infinity;
+  hits.forEach(e => {
+    const ko = new Date(e.date || e.commence_time || e.kickoff || 0).getTime();
+    if (isNaN(ko) || !ko) return;
+    const gap = Math.abs(ko - anchor);
+    if (gap < bestGap) { bestGap = gap; best = e; }
+  });
+  // More than five days from that week's Saturday and it is a different round.
+  if (!best || bestGap > 5 * 24 * 3600 * 1000) return null;
+  return best;
 }
 
 // Best-effort score read - the free tier may not expose these
