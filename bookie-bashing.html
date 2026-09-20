@@ -257,7 +257,7 @@
     <div class="sync-status" id="fixStatus"></div>
     <div class="sync-status" id="formStatus"></div>
     <div class="sync-status" id="errStatus" style="color:#ff5c8a;"></div>
-    <div class="sync-status" style="color:#7d5983;">build 64</div>
+    <div class="sync-status" style="color:#7d5983;">build 66</div>
   </div>
 
   <table id="leagueTable"></table>
@@ -1278,6 +1278,13 @@ function styleSelect(sel) {
 let openWeeks = null;
 
 function weekSummary(gw) {
+  // An unsettled week used to collapse to "1Hit 0 - Mike 0 - Michael 0", which
+  // reads as "everyone blanked" when it means nobody has settled it yet.
+  if (!weekFullySettled(gw)) {
+    const all = allPicksIn(gw);
+    const done = all.filter(pk => pk.result && pk.result !== 'pending').length;
+    return done ? ('awaiting results \u00b7 ' + done + ' of ' + all.length + ' in') : 'awaiting results';
+  }
   const parts = PARTICIPANTS.map(p => {
     const list = (gw.entries && gw.entries[p]) || [];
     const pts = list.filter(x => x.result !== 'pending')
@@ -2082,10 +2089,29 @@ function setTwatMe(name) {
   try { localStorage.setItem('bb_who', name); } catch (e) {}
 }
 
+function allPicksIn(gw) {
+  const all = [];
+  PARTICIPANTS.forEach(p => ((gw.entries && gw.entries[p]) || []).forEach(pk => all.push(pk)));
+  return all;
+}
+
+// A week only gets judged once EVERY pick in it has a result. Half a week of
+// results makes whoever has fewest games settled look like the worst performer.
+function weekFullySettled(gw) {
+  const all = allPicksIn(gw);
+  return all.length > 0 && all.every(pk => pk.result && pk.result !== 'pending');
+}
+
 function lastSettledWeek() {
-  const done = picks.filter(gw => PARTICIPANTS.some(p =>
-    ((gw.entries && gw.entries[p]) || []).some(pk => pk.result && pk.result !== 'pending')));
+  const done = picks.filter(weekFullySettled);
   return done.sort((a, b) => (b.week || 0) - (a.week || 0))[0] || null;
+}
+
+function weekStillSettling(afterWeek) {
+  return picks
+    .filter(gw => (gw.week || 0) > afterWeek && !weekFullySettled(gw)
+      && allPicksIn(gw).some(pk => pk.result && pk.result !== 'pending'))
+    .sort((a, b) => (b.week || 0) - (a.week || 0))[0] || null;
 }
 
 // Named twatWeekRows, NOT weekSummary: renderHistory already has its own
@@ -2129,6 +2155,7 @@ function renderTwat() {
     }
   }
 
+  const settling = weekStillSettling(gw.week || 0);
   const notes = weekNotes(gw.week);
   const me = twatMe();
   const meKey = personKey(me);
@@ -2151,7 +2178,8 @@ function renderTwat() {
     }).join('');
 
   el.innerHTML = `<div class="twat-card">
-    <div class="twat-head">\u{1F3C5} Twat of the week \u00b7 match week ${gw.week}</div>
+    <div class="twat-head">\u{1F3C5} Twat of the week \u00b7 match week ${gw.week}${
+      settling ? ` \u00b7 <span style="color:#a882ac; font-weight:400; text-transform:none; letter-spacing:0;">week ${settling.week} still settling</span>` : ''}</div>
     <div class="twat-body">
       ${allSame ? '' : badgeImg(worst.name, 46)}
       <div>
